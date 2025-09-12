@@ -1,0 +1,7 @@
+/.venv
+/.vscode
+/config.yml
+/ebook_db
+/ebook_processor.log
+/output
+/__pycache__

@@ -41,6 +41,9 @@ class ChunkInfo:
     length: int
     text: str
     metadata: Dict = None
+    page_start: int = None  # First page this chunk appears on
+    page_end: int = None    # Last page this chunk appears on
+    page_type: str = None   # 'actual' for PDFs, 'estimated' for others
     
 
 class TextChunker:
@@ -49,6 +52,107 @@ class TextChunker:
     def __init__(self, config: ProcessingConfig):
         self.config = config
     
+    def chunk_text_with_pages(self, text: str, page_info: List[Dict], preserve_paragraphs: bool = True) -> List[ChunkInfo]:
+        """
+        Split text into manageable chunks while preserving page information
+        
+        Args:
+            text (str): Text content to chunk
+            page_info (List[Dict]): Page information from ebook reader
+            preserve_paragraphs (bool): Try to keep paragraphs intact
+            
+        Returns:
+            List[ChunkInfo]: List of text chunks with page metadata
+        """
+        if not text or len(text) < self.config.min_chunk_size:
+            return []
+        
+        if not page_info:
+            # Fall back to regular chunking if no page info
+            return self.chunk_text(text, preserve_paragraphs)
+        
+        chunks = []
+        
+        if preserve_paragraphs:
+            chunks = self._chunk_by_paragraphs_with_pages(text, page_info)
+        else:
+            chunks = self._chunk_by_size_with_pages(text, page_info)
+        
+        # Create ChunkInfo objects with page information
+        chunk_infos = []
+        for i, (start, end, chunk_text, page_start, page_end, page_type) in enumerate(chunks):
+            chunk_info = ChunkInfo(
+                index=i,
+                start_pos=start,
+                end_pos=end,
+                length=len(chunk_text),
+                text=chunk_text,
+                metadata={'method': 'paragraphs_with_pages' if preserve_paragraphs else 'size_with_pages'},
+                page_start=page_start,
+                page_end=page_end,
+                page_type=page_type
+            )
+            chunk_infos.append(chunk_info)
+        
+        logger.info(f"Created {len(chunk_infos)} chunks with page tracking from {len(text)} characters")
+        return chunk_infos
+    
+    def _find_pages_for_position(self, page_info: List[Dict], start_pos: int, end_pos: int) -> Tuple[int, int, str]:
+        """
+        Find which pages a text chunk spans
+        
+        Args:
+            page_info: List of page information dicts
+            start_pos: Start character position in text
+            end_pos: End character position in text
+            
+        Returns:
+            Tuple of (first_page, last_page, page_type)
+        """
+        first_page = None
+        last_page = None
+        page_type = 'estimated'  # Default
+        
+        for page in page_info:
+            page_start = page['start_pos']
+            page_end = page['end_pos']
+            page_num = page['page_num']
+            
+            # Check if this page overlaps with our chunk
+            if page_end > start_pos and page_start < end_pos:
+                if first_page is None:
+                    first_page = page_num
+                    page_type = page.get('page_type', 'estimated')
+                last_page = page_num
+        
+        return first_page or 1, last_page or first_page or 1, page_type
+    
+    def _chunk_by_paragraphs_with_pages(self, text: str, page_info: List[Dict]) -> List[Tuple[int, int, str, int, int, str]]:
+        """Chunk text by paragraphs while tracking page information"""
+        # Use the existing paragraph chunking logic
+        basic_chunks = self._chunk_by_paragraphs(text)
+        
+        # Add page information to each chunk
+        page_aware_chunks = []
+        for start, end, chunk_text in basic_chunks:
+            page_start, page_end, page_type = self._find_pages_for_position(page_info, start, end)
+            page_aware_chunks.append((start, end, chunk_text, page_start, page_end, page_type))
+        
+        return page_aware_chunks
+    
+    def _chunk_by_size_with_pages(self, text: str, page_info: List[Dict]) -> List[Tuple[int, int, str, int, int, str]]:
+        """Chunk text by size while tracking page information"""
+        # Use the existing size chunking logic
+        basic_chunks = self._chunk_by_size(text)
+        
+        # Add page information to each chunk
+        page_aware_chunks = []
+        for start, end, chunk_text in basic_chunks:
+            page_start, page_end, page_type = self._find_pages_for_position(page_info, start, end)
+            page_aware_chunks.append((start, end, chunk_text, page_start, page_end, page_type))
+        
+        return page_aware_chunks
+
     def chunk_text(self, text: str, preserve_paragraphs: bool = True) -> List[ChunkInfo]:
         """
         Split text into manageable chunks for processing

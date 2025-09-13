@@ -365,8 +365,9 @@ def rag(ctx):
               default='summary', help='Type of processing')
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.option('--fast', is_flag=True, help='Fast mode: Skip AI analysis for quicker processing')
+@click.option('--with-pages', is_flag=True, help='Enable page-aware processing for citations')
 @click.pass_context
-def add_book(ctx, file_path, processing_type, db_path, fast):
+def add_book(ctx, file_path, processing_type, db_path, fast, with_pages):
     """Process and add a book to the RAG database"""
     config = ctx.obj['config']
     
@@ -391,21 +392,31 @@ def add_book(ctx, file_path, processing_type, db_path, fast):
             else:
                 click.echo(f"Error in fast mode processing", err=True)
         else:
-            # Use normal mode with AI analysis
+            # Use normal or page-aware processing
             processor = EnhancedEbookProcessor(model_name=config.get('ollama.model'))
             processor.rag_system.db_path = db_path
             
-            click.echo(f"Processing and adding: {file_path}")
+            processing_mode = "with page citations" if with_pages else "standard"
+            click.echo(f"Processing and adding ({processing_mode}): {file_path}")
             
             with click.progressbar(length=1, label='Processing') as bar:
-                result = processor.process_and_store(file_path)
+                result = processor.process_and_store(file_path, with_pages=with_pages)
                 bar.update(1)
             
             if 'error' in result:
                 click.echo(f"Error: {result['error']}", err=True)
+            elif result.get('duplicate'):
+                title = result['metadata'].get('title', 'Unknown')
+                click.echo(f"→ Skipped '{title}' (already exists)")
             else:
                 title = result['metadata'].get('title', 'Unknown')
-                click.echo(f"✓ Added '{title}' to RAG database")
+                if with_pages:
+                    page_info = result.get('chunk_info', {})
+                    page_count = page_info.get('total_pages', 'unknown')
+                    page_type = page_info.get('page_type', 'estimated')
+                    click.echo(f"✓ Added '{title}' with {page_count} {page_type} pages to RAG database")
+                else:
+                    click.echo(f"✓ Added '{title}' to RAG database")
             
     except Exception as e:
         click.echo(f"Error processing file: {e}", err=True)
@@ -419,8 +430,9 @@ def add_book(ctx, file_path, processing_type, db_path, fast):
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.option('--recursive/--no-recursive', default=True, help='Search recursively')
 @click.option('--max-files', type=int, help='Maximum number of files to process')
+@click.option('--with-pages', is_flag=True, help='Enable page-aware processing for citations')
 @click.pass_context
-def add_directory(ctx, directory, processing_type, db_path, recursive, max_files):
+def add_directory(ctx, directory, processing_type, db_path, recursive, max_files, with_pages):
     """Process and add all books in a directory to the RAG database"""
     config = ctx.obj['config']
     
@@ -439,25 +451,41 @@ def add_directory(ctx, directory, processing_type, db_path, recursive, max_files
             click.echo("No ebooks found in directory")
             return
         
-        click.echo(f"Processing and adding {len(ebooks)} books to RAG database")
+        processing_mode = "with page citations" if with_pages else "standard"
+        click.echo(f"Processing and adding {len(ebooks)} books ({processing_mode}) to RAG database")
         
         successful = 0
+        skipped = 0
         for i, ebook_path in enumerate(ebooks):
             click.echo(f"Processing {i+1}/{len(ebooks)}: {Path(ebook_path).name}")
             
             try:
-                result = processor.process_and_store(ebook_path)
+                result = processor.process_and_store(ebook_path, with_pages=with_pages)
                 if 'error' not in result:
-                    successful += 1
-                    title = result['metadata'].get('title', 'Unknown')
-                    click.echo(f"  ✓ Added '{title}'")
+                    if result.get('duplicate'):
+                        skipped += 1
+                        title = result['metadata'].get('title', 'Unknown')
+                        click.echo(f"  → Skipped '{title}' (already exists)")
+                    else:
+                        successful += 1
+                        title = result['metadata'].get('title', 'Unknown')
+                        if with_pages:
+                            page_info = result.get('chunk_info', {})
+                            page_count = page_info.get('total_pages', 'unknown')
+                            click.echo(f"  ✓ Added '{title}' with {page_count} pages")
+                        else:
+                            click.echo(f"  ✓ Added '{title}'")
                 else:
                     click.echo(f"  ✗ Error: {result['error']}")
                     
             except Exception as e:
                 click.echo(f"  ✗ Error: {e}")
         
-        click.echo(f"\n✓ Added {successful}/{len(ebooks)} books to RAG database")
+        citation_note = " with page citations" if with_pages else ""
+        if skipped > 0:
+            click.echo(f"\n✓ Added {successful}/{len(ebooks)} books to RAG database{citation_note} ({skipped} skipped as duplicates)")
+        else:
+            click.echo(f"\n✓ Added {successful}/{len(ebooks)} books to RAG database{citation_note}")
         
     except Exception as e:
         click.echo(f"Error processing directory: {e}", err=True)
@@ -520,21 +548,25 @@ def search(ctx, query, db_path, results):
             author = result['metadata'].get('author', '').strip()
             content = result['content'][:300] + "..." if len(result['content']) > 300 else result['content']
             
-            # Create better source attribution
-            if book_title and author:
-                source = f"From '{book_title}' by {author}"
-            elif book_title:
-                source = f"From '{book_title}'"
-            elif author:
-                source = f"From a book by {author}"
+            # Use citation if available, otherwise fallback to old format
+            if 'citation' in result and result['citation']:
+                source_info = result['citation']
             else:
-                format_info = result['metadata'].get('format', '')
-                if format_info:
-                    source = f"From your {format_info} book"
+                # Fallback for older entries without page info
+                if book_title and author:
+                    source_info = f"From '{book_title}' by {author}"
+                elif book_title:
+                    source_info = f"From '{book_title}'"
+                elif author:
+                    source_info = f"From a book by {author}"
                 else:
-                    source = "From your book collection"
+                    format_info = result['metadata'].get('format', '')
+                    if format_info:
+                        source_info = f"From your {format_info} book"
+                    else:
+                        source_info = "From your book collection"
             
-            click.echo(f"\n{i}. {source}:")
+            click.echo(f"\n{i}. {source_info}:")
             click.echo("-" * 40)
             click.echo(content)
         
@@ -563,6 +595,115 @@ def stats(ctx, db_path):
         
     except Exception as e:
         click.echo(f"Error getting stats: {e}", err=True)
+
+
+@rag.command()
+@click.option('--db-path', default='ebook_db', help='Path to RAG database')
+@click.option('--filter', '-f', help='Filter books by title or author (case-insensitive)')
+@click.pass_context
+def list_books(ctx, db_path, filter):
+    """List all books in the RAG database"""
+    try:
+        rag_system = EbookRAGSystem(db_path)
+        books = rag_system.list_books()
+        
+        if not books:
+            click.echo("No books found in the RAG database.")
+            return
+        
+        # Apply filter if provided
+        if filter:
+            filter_lower = filter.lower()
+            filtered_books = []
+            for book in books:
+                title = book.get('title', '').lower()
+                author = book.get('author', '').lower()
+                if filter_lower in title or filter_lower in author:
+                    filtered_books.append(book)
+            books = filtered_books
+        
+        if not books:
+            click.echo(f"No books found matching filter: '{filter}'")
+            return
+        
+        click.echo(f"Found {len(books)} book(s) in the RAG database:")
+        click.echo("=" * 70)
+        
+        for i, book in enumerate(books, 1):
+            title = book.get('title', 'Unknown Title')
+            author = book.get('author', 'Unknown Author')
+            format_type = book.get('format', 'Unknown')
+            chunks = book.get('chunks', 0)
+            
+            click.echo(f"{i:3}. {title}")
+            click.echo(f"     Author: {author}")
+            click.echo(f"     Format: {format_type} | Chunks: {chunks}")
+            if i < len(books):  # Don't add separator after last item
+                click.echo()
+        
+    except Exception as e:
+        click.echo(f"Error listing books: {e}", err=True)
+
+
+@rag.command()
+@click.argument('pattern')
+@click.option('--db-path', default='ebook_db', help='Path to RAG database')
+@click.option('--by', type=click.Choice(['title', 'author', 'both']), default='both', 
+              help='Search by title, author, or both')
+@click.pass_context
+def find_book(ctx, pattern, db_path, by):
+    """Find books by title or author pattern"""
+    try:
+        rag_system = EbookRAGSystem(db_path)
+        books = rag_system.list_books()
+        
+        if not books:
+            click.echo("No books found in the RAG database.")
+            return
+        
+        pattern_lower = pattern.lower()
+        matching_books = []
+        
+        for book in books:
+            title = book.get('title', '').lower()
+            author = book.get('author', '').lower()
+            
+            match = False
+            if by == 'title' and pattern_lower in title:
+                match = True
+            elif by == 'author' and pattern_lower in author:
+                match = True
+            elif by == 'both' and (pattern_lower in title or pattern_lower in author):
+                match = True
+            
+            if match:
+                matching_books.append(book)
+        
+        if not matching_books:
+            search_type = "title and author" if by == 'both' else by
+            click.echo(f"No books found with '{pattern}' in {search_type}.")
+            return
+        
+        search_type = "title and author" if by == 'both' else by
+        click.echo(f"Found {len(matching_books)} book(s) matching '{pattern}' in {search_type}:")
+        click.echo("=" * 70)
+        
+        for i, book in enumerate(matching_books, 1):
+            title = book.get('title', 'Unknown Title')
+            author = book.get('author', 'Unknown Author')
+            format_type = book.get('format', 'Unknown')
+            chunks = book.get('chunks', 0)
+            book_id = book.get('book_id', '')
+            
+            click.echo(f"{i:3}. {title}")
+            click.echo(f"     Author: {author}")
+            click.echo(f"     Format: {format_type} | Chunks: {chunks}")
+            click.echo(f"     Book ID: {book_id}")
+            if i < len(matching_books):  # Don't add separator after last item
+                click.echo()
+        
+    except Exception as e:
+        click.echo(f"Error finding books: {e}", err=True)
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ from typing import List, Dict, Optional
 import json
 import logging
 from pathlib import Path
+import hashlib
 
 # You would need to install these:
 # pip install chromadb sentence-transformers
@@ -44,48 +45,259 @@ class EbookRAGSystem:
         
         logger.info(f"RAG system initialized with database at: {db_path}")
     
-    def add_processed_ebook(self, result: Dict) -> None:
+    def get_file_hash(self, file_path: str) -> str:
         """
-        Add a processed ebook result to the RAG database
+        Get MD5 hash of file for deduplication
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            MD5 hash as hexadecimal string
+        """
+        try:
+            hash_md5 = hashlib.md5()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception as e:
+            logger.error(f"Error computing file hash for {file_path}: {e}")
+            return ""
+    
+    def book_exists(self, book_id: str) -> bool:
+        """
+        Check if book already exists in the database
+        
+        Args:
+            book_id: Unique identifier for the book
+            
+        Returns:
+            True if book exists, False otherwise
+        """
+        try:
+            results = self.collection.get(
+                where={"book_id": book_id},
+                limit=1
+            )
+            return len(results['ids']) > 0
+        except Exception as e:
+            logger.error(f"Error checking if book exists: {e}")
+            return False
+    
+    def list_books(self) -> List[Dict]:
+        """
+        List all books in the database
+        
+        Returns:
+            List of dictionaries with book information
+        """
+        try:
+            # Get all documents to analyze unique books
+            results = self.collection.get()
+            books = {}
+            
+            for metadata in results['metadatas']:
+                book_id = metadata.get('book_id')
+                if book_id and book_id not in books:
+                    books[book_id] = {
+                        'book_id': book_id,
+                        'title': metadata.get('book_title', 'Unknown'),
+                        'author': metadata.get('author', 'Unknown'),
+                        'format': metadata.get('format', 'Unknown'),
+                        'file_hash': metadata.get('file_hash', ''),
+                        'chunks': 0
+                    }
+                if book_id:
+                    books[book_id]['chunks'] += 1
+            
+            return list(books.values())
+        except Exception as e:
+            logger.error(f"Error listing books: {e}")
+            return []
+    
+    def remove_book(self, book_id: str) -> bool:
+        """
+        Remove all chunks for a specific book
+        
+        Args:
+            book_id: Unique identifier for the book to remove
+            
+        Returns:
+            True if book was removed, False otherwise
+        """
+        try:
+            # Get all chunks for this book
+            results = self.collection.get(where={"book_id": book_id})
+            
+            if results['ids']:
+                self.collection.delete(ids=results['ids'])
+                logger.info(f"Removed {len(results['ids'])} chunks for book {book_id}")
+                return True
+            else:
+                logger.warning(f"No chunks found for book {book_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error removing book {book_id}: {e}")
+            return False
+    
+    def add_ebook_with_pages(self, file_path: str, overwrite: bool = False) -> str:
+        """
+        Add an ebook to the RAG database with page-aware content extraction
+        
+        Args:
+            file_path: Path to the ebook file
+            overwrite: Whether to overwrite existing book
+            
+        Returns:
+            Status message
+        """
+        try:
+            from ebook_reader import EbookReader
+            from text_pipeline import TextChunker, ProcessingConfig
+            
+            # Read ebook with page information
+            reader = EbookReader()
+            text_content, metadata, page_info = reader.read_ebook_with_pages(file_path)
+            
+            # Create book ID
+            file_hash = self.get_file_hash(file_path)
+            base_book_id = f"{metadata.get('title', 'unknown')}_{metadata.get('author', 'unknown')}"
+            base_book_id = base_book_id.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            book_id = f"{base_book_id}_{file_hash[:8]}"
+            
+            # Check if book already exists
+            if self.book_exists(book_id):
+                if not overwrite:
+                    logger.warning(f"Book {book_id} already exists. Use overwrite=True to replace.")
+                    return f"Book {book_id} already exists, skipped"
+                else:
+                    self.remove_book(book_id)
+                    logger.info(f"Overwriting existing book {book_id}")
+            
+            # Create chunks with page awareness
+            config = ProcessingConfig(chunk_size=1000, chunk_overlap=200)
+            chunker = TextChunker(config)
+            chunk_infos = chunker.chunk_text_with_pages(text_content, page_info)
+            
+            if not chunk_infos:
+                logger.warning(f"No chunks created for {book_id}")
+                return f"No chunks created for {book_id}"
+            
+            # Add chunks to database with page information
+            for chunk_info in chunk_infos:
+                doc_id = f"{book_id}_chunk_{chunk_info.index}"
+                
+                chunk_metadata = {
+                    'book_title': metadata.get('title', 'Unknown'),
+                    'author': metadata.get('author', 'Unknown'),
+                    'format': metadata.get('format', 'Unknown'),
+                    'chunk_id': chunk_info.index,
+                    'book_id': book_id,
+                    'file_hash': file_hash,
+                    'file_path': str(file_path),
+                    'page_start': chunk_info.page_start,
+                    'page_end': chunk_info.page_end,
+                    'page_type': chunk_info.page_type,  # 'actual' or 'estimated'
+                    'total_pages': metadata.get('pages', 0)
+                }
+                
+                self.collection.add(
+                    documents=[chunk_info.text],
+                    metadatas=[chunk_metadata],
+                    ids=[doc_id]
+                )
+            
+            success_msg = f"Added {len(chunk_infos)} chunks with page citations for '{metadata.get('title')}' to RAG database"
+            logger.info(success_msg)
+            return success_msg
+            
+        except Exception as e:
+            error_msg = f"Error adding ebook with pages to RAG database: {e}"
+            logger.error(error_msg)
+            return error_msg
+
+    def add_processed_ebook(self, result: Dict, file_path: str = None, overwrite: bool = False) -> str:
+        """
+        Add a processed ebook result to the RAG database with duplicate detection
         
         Args:
             result: Processing result from EbookProcessorApp
+            file_path: Path to original file (for hash-based deduplication)
+            overwrite: Whether to overwrite existing book
+            
+        Returns:
+            Status message indicating what happened
         """
         try:
             # Extract metadata
             metadata = result['metadata']
-            book_id = f"{metadata.get('title', 'unknown')}_{metadata.get('author', 'unknown')}"
-            book_id = book_id.replace(' ', '_').replace('/', '_')
+            base_book_id = f"{metadata.get('title', 'unknown')}_{metadata.get('author', 'unknown')}"
+            base_book_id = base_book_id.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            
+            # Add file hash for better deduplication if file_path provided
+            file_hash = ""
+            if file_path and os.path.exists(file_path):
+                file_hash = self.get_file_hash(file_path)
+                book_id = f"{base_book_id}_{file_hash[:8]}"  # Use first 8 chars of hash
+            else:
+                book_id = base_book_id
+            
+            # Check if book already exists
+            if self.book_exists(book_id):
+                if not overwrite:
+                    logger.warning(f"Book {book_id} already exists. Use overwrite=True to replace.")
+                    return f"Book {book_id} already exists, skipped"
+                else:
+                    # Remove existing book
+                    self.remove_book(book_id)
+                    logger.info(f"Overwriting existing book {book_id}")
             
             # Get the processed content
             content = result.get('combined_result', '')
             if not content:
                 logger.warning(f"No content to add for {book_id}")
-                return
+                return f"No content found for {book_id}"
             
             # Create chunks for vector storage
             chunks = self._chunk_content(content, chunk_size=1000)
+            
+            if not chunks:
+                logger.warning(f"No chunks created for {book_id}")
+                return f"No chunks created for {book_id}"
             
             # Add to database
             for i, chunk in enumerate(chunks):
                 doc_id = f"{book_id}_chunk_{i}"
                 
+                chunk_metadata = {
+                    'book_title': metadata.get('title', 'Unknown'),
+                    'author': metadata.get('author', 'Unknown'),
+                    'format': metadata.get('format', 'Unknown'),
+                    'chunk_id': i,
+                    'book_id': book_id
+                }
+                
+                # Add file hash to metadata if available
+                if file_hash:
+                    chunk_metadata['file_hash'] = file_hash
+                if file_path:
+                    chunk_metadata['file_path'] = str(file_path)
+                
                 self.collection.add(
                     documents=[chunk],
-                    metadatas=[{
-                        'book_title': metadata.get('title', 'Unknown'),
-                        'author': metadata.get('author', 'Unknown'),
-                        'format': metadata.get('format', 'Unknown'),
-                        'chunk_id': i,
-                        'book_id': book_id
-                    }],
+                    metadatas=[chunk_metadata],
                     ids=[doc_id]
                 )
             
-            logger.info(f"Added {len(chunks)} chunks for '{metadata.get('title')}' to RAG database")
+            success_msg = f"Added {len(chunks)} chunks for '{metadata.get('title')}' to RAG database"
+            logger.info(success_msg)
+            return success_msg
             
         except Exception as e:
-            logger.error(f"Error adding ebook to RAG database: {e}")
+            error_msg = f"Error adding ebook to RAG database: {e}"
+            logger.error(error_msg)
+            return error_msg
     
     def add_multiple_ebooks(self, results: List[Dict]) -> None:
         """Add multiple processed ebooks to the database"""
@@ -101,7 +313,7 @@ class EbookRAGSystem:
             n_results: Number of results to return
             
         Returns:
-            Dictionary with search results
+            Dictionary with search results including page citations
         """
         try:
             results = self.collection.query(
@@ -109,25 +321,64 @@ class EbookRAGSystem:
                 n_results=n_results
             )
             
-            return {
+            search_results = {
                 'query': query,
-                'results': [
-                    {
+                'results': []
+            }
+            
+            if results['documents'] and results['documents'][0]:
+                for doc, meta, dist in zip(
+                    results['documents'][0],
+                    results['metadatas'][0], 
+                    results['distances'][0]
+                ):
+                    # Create citation information
+                    citation_info = self._create_citation(meta)
+                    
+                    result_item = {
                         'content': doc,
                         'metadata': meta,
-                        'distance': dist
+                        'distance': dist,
+                        'similarity_score': 1 - dist,  # Convert distance to similarity
+                        'citation': citation_info
                     }
-                    for doc, meta, dist in zip(
-                        results['documents'][0],
-                        results['metadatas'][0], 
-                        results['distances'][0]
-                    )
-                ]
-            }
+                    search_results['results'].append(result_item)
+            
+            return search_results
             
         except Exception as e:
             logger.error(f"Error searching books: {e}")
             return {'query': query, 'results': []}
+    
+    def _create_citation(self, metadata: Dict) -> str:
+        """
+        Create a citation string from chunk metadata
+        
+        Args:
+            metadata: Chunk metadata containing page and book information
+            
+        Returns:
+            Formatted citation string
+        """
+        book_title = metadata.get('book_title', 'Unknown Title')
+        author = metadata.get('author', 'Unknown Author')
+        page_start = metadata.get('page_start')
+        page_end = metadata.get('page_end')
+        page_type = metadata.get('page_type', 'estimated')
+        
+        # Format basic citation
+        citation = f"{author}. \"{book_title}\""
+        
+        # Add page information if available
+        if page_start and page_end:
+            if page_start == page_end:
+                page_indicator = "(est. p." if page_type == 'estimated' else "(p."
+                citation += f" {page_indicator} {page_start})"
+            else:
+                page_indicator = "(est. pp." if page_type == 'estimated' else "(pp."
+                citation += f" {page_indicator} {page_start}-{page_end})"
+        
+        return citation
     
     def ask_question(self, question: str, ollama_processor, context_chunks: int = 5) -> str:
         """
@@ -151,11 +402,19 @@ class EbookRAGSystem:
             for term in related_terms:
                 additional_results = self.search_books(term, max(1, context_chunks - len(search_results['results'])))
                 if additional_results['results']:
-                    # Merge results, avoiding duplicates
-                    existing_ids = {r.get('metadata', {}).get('chunk_id', '') for r in search_results['results']}
+                    # Merge results, avoiding duplicates using composite key (book_id, chunk_id)
+                    existing_ids = {
+                        (r.get('metadata', {}).get('book_id', ''), r.get('metadata', {}).get('chunk_id', '')) 
+                        for r in search_results['results']
+                    }
                     for result in additional_results['results']:
-                        if result.get('metadata', {}).get('chunk_id', '') not in existing_ids:
+                        composite_key = (
+                            result.get('metadata', {}).get('book_id', ''), 
+                            result.get('metadata', {}).get('chunk_id', '')
+                        )
+                        if composite_key not in existing_ids:
                             search_results['results'].append(result)
+                            existing_ids.add(composite_key)
                             if len(search_results['results']) >= context_chunks:
                                 break
                 if len(search_results['results']) >= context_chunks:
@@ -353,16 +612,95 @@ class EnhancedEbookProcessor:
             self.rag_system = None
             logger.warning("RAG system not available")
     
-    def process_and_store(self, ebook_path: str) -> Dict:
-        """Process an ebook and add it to the RAG system"""
-        # Process the ebook
-        result = self.app.process_single_ebook(ebook_path)
+    def process_and_store(self, ebook_path: str, overwrite: bool = False, with_pages: bool = False) -> Dict:
+        """Process an ebook and add it to the RAG system with duplicate prevention
         
-        # Add to RAG database if available
-        if self.rag_system and 'error' not in result:
-            self.rag_system.add_processed_ebook(result)
+        Args:
+            ebook_path: Path to the ebook file
+            overwrite: Whether to overwrite existing books
+            with_pages: Whether to use page-aware processing for citations
+            
+        Returns:
+            Processing result dictionary
+        """
+        # Early duplicate check to avoid unnecessary processing
+        if self.rag_system:
+            try:
+                # Quick metadata read to generate book ID
+                from ebook_reader import EbookReader
+                reader = EbookReader()
+                
+                # Get basic metadata without full processing
+                try:
+                    if with_pages:
+                        _, metadata, _ = reader.read_ebook_with_pages(ebook_path)
+                    else:
+                        _, metadata = reader.read_ebook(ebook_path)
+                except Exception:
+                    # If metadata reading fails, proceed with processing
+                    pass
+                else:
+                    # Generate book ID for duplicate check
+                    file_hash = self.rag_system.get_file_hash(ebook_path)
+                    base_book_id = f"{metadata.get('title', 'unknown')}_{metadata.get('author', 'unknown')}"
+                    base_book_id = base_book_id.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                    book_id = f"{base_book_id}_{file_hash[:8]}"
+                    
+                    # Check if book already exists
+                    if self.rag_system.book_exists(book_id):
+                        if not overwrite:
+                            logger.info(f"Book '{metadata.get('title', 'Unknown')}' already exists, skipping processing")
+                            return {
+                                'metadata': metadata,
+                                'processing_mode': 'skipped',
+                                'rag_status': f"Book {book_id} already exists, skipped",
+                                'duplicate': True
+                            }
+                        else:
+                            logger.info(f"Book '{metadata.get('title', 'Unknown')}' exists, will overwrite after processing")
+            except Exception as e:
+                logger.warning(f"Could not perform early duplicate check: {e}, proceeding with processing")
         
-        return result
+        if with_pages and self.rag_system:
+            # Use page-aware processing
+            try:
+                status = self.rag_system.add_ebook_with_pages(ebook_path, overwrite=overwrite)
+                
+                # Create a result structure similar to regular processing
+                from ebook_reader import EbookReader
+                reader = EbookReader()
+                _, metadata, page_info = reader.read_ebook_with_pages(ebook_path)
+                
+                result = {
+                    'metadata': metadata,
+                    'processing_mode': 'page_aware',
+                    'chunk_info': {
+                        'total_pages': len(page_info),
+                        'page_type': page_info[0].get('page_type', 'estimated') if page_info else 'unknown'
+                    },
+                    'rag_status': status
+                }
+                
+                if "Added" in status:
+                    logger.info(f"Successfully processed with pages: {metadata.get('title', 'Unknown')}")
+                else:
+                    result['error'] = status
+                    
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error in page-aware processing: {e}")
+                return {'error': f"Page-aware processing failed: {e}"}
+        else:
+            # Use regular processing
+            result = self.app.process_single_ebook(ebook_path)
+            
+            # Add to RAG database if available
+            if self.rag_system and 'error' not in result:
+                status = self.rag_system.add_processed_ebook(result, file_path=ebook_path, overwrite=overwrite)
+                result['rag_status'] = status
+            
+            return result
     
     def ask_about_collection(self, question: str) -> str:
         """Ask a question about your entire book collection"""
@@ -370,14 +708,40 @@ class EnhancedEbookProcessor:
             return "RAG system not available. Install dependencies: pip install chromadb sentence-transformers"
         
         return self.rag_system.ask_question(question, self.ollama_processor)
+    
+    def list_books(self) -> List[Dict]:
+        """List all books in the RAG database"""
+        if not self.rag_system:
+            return []
+        return self.rag_system.list_books()
+    
+    def remove_book(self, book_id: str) -> bool:
+        """Remove a book from the RAG database"""
+        if not self.rag_system:
+            return False
+        return self.rag_system.remove_book(book_id)
+    
+    def book_exists(self, book_id: str) -> bool:
+        """Check if a book exists in the RAG database"""
+        if not self.rag_system:
+            return False
+        return self.rag_system.book_exists(book_id)
 
 
 # Example usage
 if __name__ == "__main__":
-    print("Enhanced Ebook Processor with RAG")
+    print("Enhanced Ebook Processor with RAG and Duplicate Prevention")
     print("This creates a searchable knowledge base of your books!")
     print("\nTo use:")
     print("1. pip install chromadb sentence-transformers")
     print("2. processor = EnhancedEbookProcessor()")
-    print("3. processor.process_and_store('book.epub')")
-    print("4. answer = processor.ask_about_collection('What themes appear in my books?')")
+    print("3. processor.process_and_store('book.epub')  # Automatically prevents duplicates")
+    print("4. processor.process_and_store('book.epub', overwrite=True)  # Force overwrite")
+    print("5. books = processor.list_books()  # See all books in database")
+    print("6. answer = processor.ask_about_collection('What themes appear in my books?')")
+    print("\nDuplicate Prevention Features:")
+    print("- File hash-based deduplication prevents identical files")
+    print("- Smart book ID generation (title_author_hash)")
+    print("- List existing books with metadata")
+    print("- Remove books cleanly from database")
+    print("- Graceful handling of duplicate attempts")

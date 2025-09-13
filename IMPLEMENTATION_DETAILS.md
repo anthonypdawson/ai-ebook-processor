@@ -119,6 +119,182 @@ This document contains detailed technical implementations, code examples, and ar
 - Includes fallback to keyword extraction when AI generation fails
 - Supports any book genre/domain instead of being limited to specific themes
 
+### Advanced Query Expansion Techniques
+
+Beyond the basic AI-powered search term generation, several sophisticated expansion methods could further improve retrieval:
+
+#### Multi-Query Expansion
+```python
+class MultiQueryExpander:
+    def __init__(self, ollama_processor):
+        self.ollama = ollama_processor
+        
+    def generate_query_variants(self, original_query, num_variants=3):
+        """Generate multiple reformulations of the same query"""
+        prompt = f"""Given this question: "{original_query}"
+
+Generate {num_variants} alternative ways to phrase this same question that might find different relevant content:
+
+1. Use different vocabulary/synonyms
+2. Approach from different angles  
+3. Be more specific or more general
+4. Focus on different aspects
+
+Return only the alternative questions, one per line."""
+
+        response = self.ollama.client.chat(
+            model=self.ollama.model_name,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.7}
+        )
+        
+        variants = [q.strip() for q in response['message']['content'].split('\n') if q.strip()]
+        return [original_query] + variants[:num_variants-1]
+    
+    def search_with_variants(self, rag_system, query, context_chunks=5):
+        """Search using multiple query variants and merge results"""
+        variants = self.generate_query_variants(query)
+        all_results = []
+        
+        for variant in variants:
+            results = rag_system.search_books(variant, context_chunks)
+            all_results.extend(results.get('results', []))
+        
+        # Deduplicate and score by frequency across variants
+        return self._merge_and_score_results(all_results, context_chunks)
+```
+
+#### Morphological & Semantic Expansion
+```python
+import nltk
+from nltk.corpus import wordnet
+
+class SemanticExpander:
+    def __init__(self):
+        # Download required NLTK data
+        nltk.download('wordnet', quiet=True)
+        nltk.download('omw-1.4', quiet=True)
+        
+    def expand_query_terms(self, query):
+        """Expand query with synonyms and morphological variations"""
+        tokens = nltk.word_tokenize(query.lower())
+        expanded_terms = set(tokens)
+        
+        for token in tokens:
+            # Get synonyms from WordNet
+            for syn in wordnet.synsets(token):
+                for lemma in syn.lemmas():
+                    synonym = lemma.name().replace('_', ' ')
+                    if len(synonym) > 2:  # Filter short/meaningless terms
+                        expanded_terms.add(synonym)
+        
+        return list(expanded_terms)
+    
+    def create_expanded_query(self, original_query, max_expansions=5):
+        """Create search-optimized query with expansions"""
+        expanded = self.expand_query_terms(original_query)
+        # Use original query as primary + top expansions as secondary terms
+        return {
+            'primary': original_query,
+            'expansions': expanded[:max_expansions]
+        }
+```
+
+#### Pseudo-Relevance Feedback (PRF)
+```python
+from collections import Counter
+import re
+
+class PseudoRelevanceFeedback:
+    def __init__(self):
+        # Common stop words to filter out
+        self.stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+        
+    def extract_key_terms(self, results, top_n=10):
+        """Extract key terms from initial search results"""
+        all_text = ' '.join([r['content'] for r in results])
+        
+        # Simple term extraction (could be enhanced with TF-IDF)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', all_text.lower())
+        filtered_words = [w for w in words if w not in self.stop_words]
+        
+        # Get most frequent terms
+        term_counts = Counter(filtered_words)
+        return [term for term, count in term_counts.most_common(top_n)]
+    
+    def refine_search(self, rag_system, original_query, initial_results, context_chunks=5):
+        """Use PRF to refine search with terms from initial results"""
+        if not initial_results:
+            return initial_results
+            
+        # Extract key terms from initial results
+        feedback_terms = self.extract_key_terms(initial_results)
+        
+        # Create refined query incorporating feedback terms
+        refined_queries = []
+        for term in feedback_terms[:3]:  # Use top 3 feedback terms
+            refined_query = f"{original_query} {term}"
+            refined_queries.append(refined_query)
+        
+        # Search with refined queries
+        refined_results = []
+        for query in refined_queries:
+            results = rag_system.search_books(query, context_chunks // len(refined_queries))
+            refined_results.extend(results.get('results', []))
+        
+        # Merge with original results
+        return self._combine_results(initial_results, refined_results, context_chunks)
+```
+
+#### Integrated Query Expansion Pipeline
+```python
+class AdvancedQueryProcessor:
+    def __init__(self, rag_system, ollama_processor):
+        self.rag = rag_system
+        self.multi_query = MultiQueryExpander(ollama_processor)
+        self.semantic = SemanticExpander()
+        self.prf = PseudoRelevanceFeedback()
+        
+    def enhanced_search(self, query, context_chunks=5, use_prf=True):
+        """Multi-stage query expansion and search"""
+        
+        # Stage 1: Multi-query expansion
+        query_variants = self.multi_query.generate_query_variants(query)
+        
+        # Stage 2: Semantic expansion for each variant
+        expanded_variants = []
+        for variant in query_variants:
+            semantic_expansion = self.semantic.create_expanded_query(variant)
+            expanded_variants.append(semantic_expansion)
+        
+        # Stage 3: Initial search with expanded queries
+        initial_results = []
+        for expansion in expanded_variants:
+            # Search with primary query
+            primary_results = self.rag.search_books(expansion['primary'], context_chunks // 2)
+            initial_results.extend(primary_results.get('results', []))
+            
+            # Search with expansion terms
+            for exp_term in expansion['expansions']:
+                exp_results = self.rag.search_books(exp_term, 1)  # Fewer results per expansion
+                initial_results.extend(exp_results.get('results', []))
+        
+        # Stage 4: Pseudo-relevance feedback (optional)
+        if use_prf and initial_results:
+            final_results = self.prf.refine_search(self.rag, query, initial_results, context_chunks)
+        else:
+            final_results = initial_results
+        
+        # Deduplicate and rank
+        return self._deduplicate_and_rank(final_results, context_chunks)
+```
+
+**Benefits of Advanced Query Expansion:**
+- **Multi-Query**: Better coverage by rephrasing questions multiple ways
+- **Semantic Expansion**: Catch synonyms and morphologically related terms  
+- **PRF**: Learn from good initial results to find more relevant content
+- **Combined Pipeline**: Systematic application of all techniques for maximum recall
+
 ### Next Up: Context Memory System
 The context memory system would be the next major enhancement, offering:
 

@@ -1,25 +1,46 @@
-# Ebook Processor with Ollama + RAG System
+# AI Ebook Processor with RAG System
 
-A comprehensive Python application that processes ebooks in various formats using Ollama AI models. Extract text content from EPUB, PDF, MOBI, TXT, DOCX files and process them through local AI models for summaries, analysis, insights, and more. **NEW: RAG (Retrieval Augmented Generation) system creates a searchable knowledge base of your entire book collection!**
+A comprehensive Python application that processes ebooks using local Ollama AI models and creates a searchable knowledge base of your entire collection through advanced RAG (Retrieval Augmented Generation) techniques.
 
-## 🆕 New RAG Features
+## 🤝 Development & Collaboration
 
-- **Searchable Knowledge Base**: Ask questions about your entire book collection
-- **Semantic Search**: Find content by meaning, not just keywords  
-- **Cross-Book Analysis**: Compare themes and insights across multiple books
-- **Contextual AI Responses**: Get answers with citations from your specific books
-- **Persistent Memory**: Build a growing database of all your processed books
+This project showcases the potential of human-AI collaboration in building sophisticated RAG systems:
 
-## Features
+- **Concept & Vision**: Original idea, architecture decisions, and quality control by [Anthony Dawson](https://github.com/anthonypdawson)
+- **Implementation & Design**: Feature development, technical architecture, and system design created through collaboration with AI assistance (Claude - Anthropic)
+- **Development Process**: Demonstrates effective patterns for human-AI collaboration in software development
 
+This transparent approach highlights how AI tools can accelerate development while human expertise drives vision, requirements, and integration decisions.
+
+## ✨ Key Features
+
+### 🧠 Advanced RAG Features
+- **Intelligent Searchable Knowledge Base**: Ask questions about your entire book collection using natural language
+- **Semantic Search**: Find content by meaning and context, not just keywords  
+- **Cross-Book Analysis**: Compare themes, characters, and insights across multiple books
+- **AI-Powered Search Enhancement**: Dynamically generates related search terms for better context retrieval
+- **Contextual Responses**: Get detailed answers with proper citations from your specific books
+- **Persistent Memory**: Build and maintain a growing vector database of all your processed books
+
+### 📚 Core Processing Features
 - **Multiple Format Support**: EPUB, PDF, MOBI, AZW, AZW3, TXT, DOCX
-- **AI-Powered Processing**: Uses Ollama models for text analysis
-- **🆕 RAG System**: Query your entire book collection with natural language
+- **Local AI Processing**: Uses Ollama models for complete privacy and control
 - **Intelligent Chunking**: Smart text segmentation for optimal processing
-- **Batch Processing**: Process entire directories of ebooks
-- **Flexible Output**: JSON, Markdown, or plain text output
-- **Command Line Interface**: Easy-to-use CLI with configuration management
-- **Progress Tracking**: Real-time progress bars and detailed statistics
+- **Batch Processing**: Process entire directories of ebooks efficiently
+- **Flexible Output**: JSON, Markdown, or plain text output formats
+- **Command Line Interface**: Easy-to-use CLI with comprehensive configuration management
+- **Progress Tracking**: Real-time progress bars and detailed processing statistics
+
+## 🚀 Roadmap & Upcoming Features
+
+See [NEXT_FEATURES.md](NEXT_FEATURES.md) for detailed roadmap including:
+- **Interactive REPL Interface**: Seamless command-line interaction without repeated CLI calls
+- **Auto-Discovery System**: Scan directories for ebooks, build catalogs without processing
+- **Book-Specific Targeting**: Focus conversations on specific books vs. entire library  
+- **Advanced Context Memory**: Graph-based conversation memory with Redis integration
+- **Adaptive AI Persona**: AI personality that evolves with your reading patterns
+
+For technical implementation details, see [IMPLEMENTATION_DETAILS.md](IMPLEMENTATION_DETAILS.md).
 
 ## Prerequisites
 

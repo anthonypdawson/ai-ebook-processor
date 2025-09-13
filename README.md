@@ -42,59 +42,139 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for detailed roadmap including:
 
 For technical implementation details, see [IMPLEMENTATION_DETAILS.md](IMPLEMENTATION_DETAILS.md).
 
-## Prerequisites
+## 📦 Installation & Setup
 
+### Prerequisites
 1. **Python 3.8+** installed on your system
 2. **Ollama** installed and running
 3. At least one Ollama model downloaded
 
-### Installing Ollama
-
-Visit [ollama.ai](https://ollama.ai) for installation instructions, or:
-
+### Step 1: Install Ollama
 ```bash
-# On Windows/Mac/Linux
-curl -fsSL https://ollama.ai/install.sh | sh
+# Visit https://ollama.ai/ for installation instructions
+# Or use package managers:
 
-# Pull a model (required)
-ollama pull llama2
+# macOS
+brew install ollama
+
+# Windows - Download from website
+# Linux  
+curl https://ollama.ai/install.sh | sh
 ```
 
-## Installation
-
-1. Clone or download this project
-2. Install dependencies:
-
+### Step 2: Download a Model
 ```bash
+ollama pull llama2        # Recommended
+ollama pull mistral       # Alternative  
+ollama pull codellama     # For code analysis
+```
+
+### Step 3: Install the Ebook Processor
+
+**Option A: Package Installation (Recommended)**
+```bash
+# Clone the repository
+git clone https://github.com/anthonypdawson/ai-ebook-processor.git
+cd ai-ebook-processor
+
+# Install the package
+pip install -e .
+
+# Now you can use clean CLI commands:
+python -m cli --help
+python -m cli rag add-book "path/to/book.epub"
+```
+
+**Option B: Direct Usage**
+```bash
+# Install dependencies only
 pip install -r requirements.txt
+
+# Run directly
+python cli.py --help
+python cli.py rag add-book "path/to/book.epub"
 ```
 
-**For RAG (Retrieval Augmented Generation) features:**
+### Step 4: Convenience Wrappers (Optional)
+For even easier usage, wrapper scripts are included:
+
+**Windows:**
+```cmd
+ebook-processor.bat --help
+ebook-processor.bat rag add-book "book.epub"
+```
+
+**Linux/Mac:**
 ```bash
-pip install chromadb sentence-transformers numpy
+./ebook-processor --help
+./ebook-processor rag add-book "book.epub"
 ```
-(These are included in requirements.txt)
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 1. Start Ollama
-
-Make sure Ollama is running:
-
 ```bash
 ollama serve
 ```
 
-### 2. Process a Single Ebook
-
+### 2. Import Books to RAG System (Recommended)
 ```bash
-python cli.py process-file "/path/to/your/book.epub"
+# Import a single book
+python -m cli rag add-book "path/to/your/book.epub"
+
+# Import entire directory
+python -m cli rag add-directory "path/to/ebooks/"
+
+# Ask questions about your books
+python -m cli rag ask "What are the main themes in my collection?"
 ```
 
-### 3. Process All Ebooks in a Directory
-
+### 3. Traditional Processing (Alternative)
 ```bash
-python cli.py process-directory "/path/to/your/ebooks"
+# Process a single ebook
+python -m cli process-file "path/to/your/book.epub"
+
+# Process all ebooks in a directory  
+python -m cli process-directory "path/to/ebooks/"
+```
+
+## 🖥️ CLI Commands Reference
+
+### Main Commands
+```bash
+# Show all available commands
+python -m cli --help
+
+# Configuration management
+python -m cli config-show                    # Show current config
+python -m cli config-set ollama.model llama2 # Set default model  
+python -m cli models                         # List available models
+
+# Discover books without processing
+python -m cli discover "path/to/ebooks/"     # Find all ebooks in directory
+```
+
+### RAG System Commands
+```bash
+# Import books
+python -m cli rag add-book "book.epub"       # Add single book
+python -m cli rag add-book "book.pdf" --fast # Fast import (skip AI analysis)
+python -m cli rag add-directory "path/"      # Add entire directory
+
+# Query your collection
+python -m cli rag ask "What themes appear in my books?"
+python -m cli rag search "artificial intelligence"
+python -m cli rag stats                      # Show database statistics
+```
+
+### Alternative Usage
+```bash
+# Use wrapper scripts (after installation)
+ebook-processor.bat rag add-book "book.epub"     # Windows
+./ebook-processor rag add-book "book.epub"       # Linux/Mac
+
+# Traditional method
+python cli.py rag add-book "book.epub"           # Direct file execution
 ```
 
 ### 🆕 4. RAG System - Build Your Knowledge Base

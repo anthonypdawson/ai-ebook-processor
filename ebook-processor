@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""
+Direct executable wrapper for AI Ebook Processor CLI
+
+This allows running the CLI directly without needing to install the package.
+Usage: ./ebook-processor --help
+"""
+
+if __name__ == "__main__":
+    from cli import cli
+    cli()

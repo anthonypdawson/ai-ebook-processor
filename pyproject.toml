@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-ebook-processor"
+version = "1.0.0"
+description = "AI-powered ebook processor with RAG capabilities"
+authors = [{name = "Anthony Dawson", email = "anthony@example.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["ebook", "ai", "ollama", "rag", "nlp", "text-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "ollama",
+    "ebooklib",
+    "PyMuPDF",
+    "python-docx",
+    "python-pptx",
+    "chardet",
+    "tqdm",
+    "click",
+    "pyyaml",
+    "pathlib2",
+    "chromadb",
+    "sentence-transformers",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "isort",
+    "flake8",
+]
+
+[project.urls]
+Homepage = "https://github.com/anthonypdawson/ai-ebook-processor"
+Repository = "https://github.com/anthonypdawson/ai-ebook-processor"
+Issues = "https://github.com/anthonypdawson/ai-ebook-processor/issues"
+
+[project.scripts]
+ebook-processor = "cli:cli"
+ebook-rag = "cli:rag"
+
+[tool.setuptools]
+py-modules = ["cli", "main", "ebook_reader", "text_pipeline", "ollama_processor", "rag_system", "fast_mode", "custom_model_creator"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+exclude = ["tests*", "__pycache__*", "*.egg-info*", "build*", "dist*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

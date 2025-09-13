@@ -11,3 +11,4 @@ pathlib2
 chromadb
 sentence-transformers
 numpy
+beautifulsoup4

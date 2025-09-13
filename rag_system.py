@@ -146,8 +146,8 @@ class EbookRAGSystem:
         
         # If we don't have many results, try to expand the search with related terms
         if len(search_results.get('results', [])) < context_chunks:
-            # Generate potential related terms based on common themes
-            related_terms = self._generate_related_search_terms(question)
+            # Generate AI-powered related terms
+            related_terms = self._generate_related_search_terms(question, ollama_processor)
             for term in related_terms:
                 additional_results = self.search_books(term, max(1, context_chunks - len(search_results['results'])))
                 if additional_results['results']:
@@ -215,30 +215,91 @@ Please provide a helpful answer based on the information above. If the context d
             logger.error(f"Error generating response: {e}")
             return f"Error generating response: {e}"
     
-    def _generate_related_search_terms(self, question: str) -> List[str]:
-        """Generate related search terms to improve context retrieval"""
-        question_lower = question.lower()
-        related_terms = []
+    def _generate_related_search_terms(self, question: str, ollama_processor) -> List[str]:
+        """
+        Use AI to generate contextually relevant search terms to improve retrieval
         
-        # Common apocalypse-related term mappings
-        term_mappings = {
-            'apocalyptic event': ['zombie', 'undead', 'outbreak', 'pandemic', 'disaster', 'catastrophe'],
-            'apocalypse': ['zombie', 'undead', 'outbreak', 'end of world'],
-            'disaster': ['zombie', 'undead', 'outbreak', 'catastrophe'],
-            'catastrophe': ['zombie', 'undead', 'outbreak', 'disaster'],
-            'survivors': ['zombie', 'undead', 'outbreak', 'apocalypse'],
-            'main characters': ['protagonist', 'narrator', 'survivors'],
-            'plot': ['story', 'events', 'what happens'],
-            'theme': ['meaning', 'message', 'about']
-        }
+        Args:
+            question: The original user question
+            ollama_processor: OllamaProcessor instance for generating terms
+            
+        Returns:
+            List of related search terms
+        """
+        try:
+            prompt = f"""Given this question about books: "{question}"
+
+Generate 3-5 related search terms or phrases that would help find relevant content in a book collection. 
+Focus on:
+- Synonyms and alternative phrasings
+- Related concepts and themes  
+- Key terms that might appear in book content
+- Broader or more specific versions of the question
+
+Return only the search terms, one per line, without explanations or numbering.
+
+Examples:
+For "What are the main themes?" you might suggest:
+central ideas
+key messages  
+underlying concepts
+moral lessons
+
+For "Who are the protagonists?" you might suggest:
+main characters
+heroes
+central figures
+lead character"""
+
+            response = ollama_processor.client.chat(
+                model=ollama_processor.model_name,
+                messages=[
+                    {'role': 'system', 'content': 'You are a helpful assistant that generates search terms for book content retrieval.'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': 0.3}  # Lower temperature for more focused results
+            )
+            
+            # Extract terms from response
+            terms_text = response['message']['content'].strip()
+            terms = [term.strip() for term in terms_text.split('\n') if term.strip()]
+            
+            # Clean up terms and limit to 5
+            clean_terms = []
+            for term in terms[:5]:
+                # Remove numbering, bullets, or other artifacts
+                clean_term = term.replace('•', '').replace('-', '').strip()
+                if clean_term and len(clean_term) > 2:
+                    clean_terms.append(clean_term)
+            
+            logger.info(f"Generated {len(clean_terms)} related search terms for: {question}")
+            return clean_terms
+            
+        except Exception as e:
+            logger.error(f"Error generating related search terms: {e}")
+            # Fallback to simple keyword extraction from the question
+            return self._fallback_term_extraction(question)
+    
+    def _fallback_term_extraction(self, question: str) -> List[str]:
+        """
+        Fallback method for generating search terms when AI generation fails
         
-        # Check for matches and add related terms
-        for key, terms in term_mappings.items():
-            if key in question_lower:
-                related_terms.extend(terms)
+        Args:
+            question: The original question
+            
+        Returns:
+            List of basic search terms extracted from the question
+        """
+        # Simple fallback: extract meaningful words from the question
+        import re
         
-        # Remove duplicates and limit to 3 terms
-        return list(set(related_terms))[:3]
+        # Remove common question words and extract meaningful terms
+        stop_words = {'what', 'who', 'when', 'where', 'why', 'how', 'is', 'are', 'the', 'a', 'an', 'and', 'or', 'but'}
+        words = re.findall(r'\b\w+\b', question.lower())
+        meaningful_words = [word for word in words if word not in stop_words and len(word) > 2]
+        
+        # Take up to 3 meaningful words
+        return meaningful_words[:3]
     
     def get_collection_stats(self) -> Dict:
         """Get statistics about the RAG database"""

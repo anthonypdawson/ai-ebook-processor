@@ -140,22 +140,6 @@ class SessionMemory:
         # Find related previous queries for context
 ```
 
-**1. Session-Based Memory**
-```python
-class SessionMemory:
-    def __init__(self, redis_client=None):
-        self.conversation_history = []
-        self.cached_contexts = {}
-        self.current_topics = set()
-        self.redis = redis_client  # Optional Redis backend
-    
-    def add_query_response(self, query, response, context_chunks):
-        # Store the Q&A with retrieved context
-        
-    def get_relevant_history(self, new_query):
-        # Find related previous queries for context
-```
-
 **2. Graph-Based Conversation Nodes**
 ```python
 class ConversationNode:

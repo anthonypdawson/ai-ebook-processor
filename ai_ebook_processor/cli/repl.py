@@ -464,17 +464,12 @@ class EbookREPL:
         
         try:
             with click.progressbar(length=1, label='Thinking') as bar:
-                response = self.rag_system.ask_question(question)
+                response = self.rag_system.ask_question(question, self.processor.ollama_processor)
                 bar.update(1)
             
             click.echo("Answer:")
             click.echo("─" * 50)
-            click.echo(response.get('answer', 'No answer generated'))
-            
-            if response.get('sources'):
-                click.echo("\n📚 Sources:")
-                for i, source in enumerate(response['sources'], 1):
-                    click.echo(f"{i}. {source.get('title', 'Unknown')} - {source.get('chunk_id', 'N/A')}")
+            click.echo(response)
                     
         except Exception as e:
             click.echo(f"Error processing question: {e}", err=True)

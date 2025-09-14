@@ -82,11 +82,16 @@ class EbookREPL:
             readline.set_completer(self._complete)
             readline.parse_and_bind("tab: complete")
             
-            # Enable better tab completion behavior
+            # Configure better tab completion behavior
             readline.parse_and_bind("set show-all-if-ambiguous on")
             readline.parse_and_bind("set completion-ignore-case on")
-            readline.parse_and_bind("set completion-map-case on")
             readline.parse_and_bind("set show-all-if-unmodified on")
+            
+            # Handle quotes and special characters better
+            readline.set_completer_delims(' \t\n`!@#$%^&*()=+[{]}\\|;:\'",<>?')
+            
+            # Prevent freezing on large directories
+            readline.parse_and_bind("set completion-query-items 100")
             
         except ImportError:
             # readline not available on this system
@@ -113,38 +118,54 @@ class EbookREPL:
             pass
     
     def _complete(self, text: str, state: int) -> Optional[str]:
-        """Tab completion function."""
-        line = readline.get_line_buffer()
-        tokens = shlex.split(line) if line.strip() else []
-        
-        # If we're at the beginning or completing a command
-        if not tokens or (len(tokens) == 1 and not line.endswith(' ')):
-            # Complete command names
-            commands = list(self.commands.keys()) + list(self.aliases.keys())
-            matches = [cmd for cmd in commands if cmd.startswith(text)]
-        else:
-            # We're completing arguments - check if it's a path-based command
-            command = tokens[0] if tokens else ""
-            if command in ['cd', 'add'] or command in self.aliases:
-                # Complete file paths for these commands
-                matches = self._complete_path(text)
-            else:
-                # No completion for other commands
-                matches = []
-        
+        """Tab completion function with proper space handling."""
         try:
+            line = readline.get_line_buffer()
+            
+            # Handle quoted strings and spaces properly
+            tokens = []
+            try:
+                tokens = shlex.split(line) if line.strip() else []
+            except ValueError:
+                # Handle unclosed quotes by trying to parse what we have
+                tokens = line.split()
+            
+            # Get the position where completion is happening
+            endidx = readline.get_endidx()
+            begidx = readline.get_begidx()
+            
+            # If we're at the beginning or completing a command
+            if not tokens or (len(tokens) == 1 and endidx <= len(tokens[0])):
+                # Complete command names
+                commands = list(self.commands.keys()) + list(self.aliases.keys())
+                matches = [cmd for cmd in commands if cmd.startswith(text)]
+            else:
+                # We're completing arguments - check if it's a path-based command
+                command = tokens[0] if tokens else ""
+                if command in ['cd', 'add'] or command in self.aliases:
+                    # Complete file paths for these commands
+                    matches = self._complete_path(text)
+                else:
+                    # No completion for other commands
+                    matches = []
+            
             return matches[state] if state < len(matches) else None
-        except (IndexError, TypeError):
+        except (IndexError, TypeError, Exception):
             return None
     
     def _complete_path(self, text: str) -> List[str]:
-        """Complete file paths with better handling."""
+        """Complete file paths with proper space handling and timeout protection."""
         if not text:
             text = "."
         
         try:
             # Handle Windows drive letter completion (any single letter followed by colon)
             import re
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Path completion timed out")
+            
             if re.match(r'^[A-Za-z]:$', text):
                 # Drive letter completion - check if drive exists
                 drive_path = Path(text + "\\")
@@ -152,13 +173,15 @@ class EbookREPL:
                     return [text + "\\"]
                 return []
             
-            path = Path(text)
+            # Remove quotes from text for path resolution
+            clean_text = text.strip('"\'')
+            path = Path(clean_text)
             
             # Handle different path scenarios
-            if path.is_absolute() or text.startswith("\\\\"):
+            if path.is_absolute() or clean_text.startswith("\\\\"):
                 # Absolute path or UNC path
                 try:
-                    if text.endswith("\\") or text.endswith("/"):
+                    if clean_text.endswith("\\") or clean_text.endswith("/"):
                         base_dir = path
                         prefix = ""
                     else:
@@ -179,31 +202,52 @@ class EbookREPL:
             
             matches = []
             try:
+                # Set a timeout to prevent freezing on slow network paths
+                if os.name != 'nt':  # Only on Unix systems
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(2)  # 2 second timeout
+                
+                count = 0
                 for item in base_dir.iterdir():
+                    # Limit the number of completions to prevent freezing
+                    if count >= 50:
+                        break
+                        
                     if item.name.startswith(prefix):
+                        count += 1
+                        
+                        # Determine the completion text
                         if is_absolute:
                             # For absolute paths, return the full path
+                            completion = str(item)
                             if item.is_dir():
-                                matches.append(str(item) + os.sep)
-                            else:
-                                matches.append(str(item))
+                                completion += os.sep
                         else:
                             # For relative paths, construct the proper relative path
                             if str(path.parent) != ".":
                                 # Include the parent path
-                                parent_part = str(path.parent) + os.sep
+                                completion = str(path.parent) + os.sep + item.name
                                 if item.is_dir():
-                                    matches.append(parent_part + item.name + os.sep)
-                                else:
-                                    matches.append(parent_part + item.name)
+                                    completion += os.sep
                             else:
                                 # Just the name
+                                completion = item.name
                                 if item.is_dir():
-                                    matches.append(item.name + os.sep)
-                                else:
-                                    matches.append(item.name)
-            except PermissionError:
-                # Can't read directory, return empty list
+                                    completion += os.sep
+                        
+                        # Quote the completion if it contains spaces or special characters
+                        if ' ' in completion or any(c in completion for c in '&()[]{}^=;!\'"+,`~'):
+                            completion = f'"{completion}"'
+                        
+                        matches.append(completion)
+                
+                if os.name != 'nt':
+                    signal.alarm(0)  # Cancel the timeout
+                        
+            except (PermissionError, TimeoutError):
+                # Can't read directory or timed out, return empty list
+                if os.name != 'nt':
+                    signal.alarm(0)  # Cancel the timeout
                 return []
             
             return sorted(matches)
@@ -256,16 +300,34 @@ class EbookREPL:
     def _execute_command(self, line: str):
         """Parse and execute a command."""
         try:
-            tokens = shlex.split(line)
+            # Handle trailing backslashes that cause shlex issues
+            cleaned_line = line.rstrip()
+            if cleaned_line.endswith('\\') and not cleaned_line.endswith('\\\\'):
+                # Remove single trailing backslash that would cause escape errors
+                cleaned_line = cleaned_line.rstrip('\\')
+            
+            tokens = shlex.split(cleaned_line)
         except ValueError as e:
+            # If shlex fails, fall back to simple split
             click.echo(f"Parse error: {e}", err=True)
-            return
+            # Try simple split as fallback
+            tokens = line.split()
+            if not tokens:
+                return
         
         if not tokens:
             return
         
         command = tokens[0].lower()
         args = tokens[1:]
+        
+        # Clean up arguments - remove trailing path separators
+        cleaned_args = []
+        for arg in args:
+            # Remove trailing separators from path arguments
+            cleaned_arg = arg.rstrip('\\/').strip('"\'')
+            if cleaned_arg:  # Only add non-empty arguments
+                cleaned_args.append(cleaned_arg)
         
         # Check aliases
         if command in self.aliases:
@@ -274,7 +336,7 @@ class EbookREPL:
         # Execute command
         if command in self.commands:
             try:
-                self.commands[command](args)
+                self.commands[command](cleaned_args)
             except Exception as e:
                 click.echo(f"Error executing command: {e}", err=True)
         else:

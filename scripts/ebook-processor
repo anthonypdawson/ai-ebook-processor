@@ -1,0 +1,40 @@
+#!/bin/bash
+# AI Ebook Processor CLI Wrapper
+# This allows running the CLI directly from anywhere
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Convert Windows paths to Unix-style for MSYS/Cygwin compatibility
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
+fi
+
+# Check if Poetry is available and use it
+if command -v poetry &> /dev/null; then
+    cd "$PROJECT_DIR"
+    exec poetry run ebook-processor "$@"
+else
+    # Legacy fallback for virtual environment
+    VENV_PYTHON="$PROJECT_DIR/.venv/Scripts/python"
+    
+    if [[ -f "$VENV_PYTHON" ]]; then
+        # Use virtual environment Python
+        export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+        exec "$VENV_PYTHON" -m ai_ebook_processor "$@"
+    elif command -v python3 &> /dev/null; then
+        # Fallback to system python3
+        cd "$PROJECT_DIR"
+        export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+        exec python3 -m ai_ebook_processor "$@"
+    elif command -v python &> /dev/null; then
+        # Fallback to system python
+        cd "$PROJECT_DIR"
+        export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+        exec python -m ai_ebook_processor "$@"
+    else
+        echo "Error: No Python interpreter found. Please install Python or Poetry."
+        exit 1
+    fi
+fi

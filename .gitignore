@@ -1,4 +1,5 @@
 __pycache__
+backup
 /.venv
 /.vscode
 /ebook_db

@@ -25,16 +25,7 @@ setup(
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     url="https://github.com/anthonypdawson/ai-ebook-processor",
-    py_modules=[
-        "cli",
-        "main", 
-        "ebook_reader",
-        "text_pipeline",
-        "ollama_processor",
-        "rag_system",
-        "fast_mode",
-        "custom_model_creator"
-    ],
+    packages=find_packages(),
     install_requires=read_requirements(),
     extras_require={
         "dev": [
@@ -47,8 +38,8 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "ebook-processor=cli:cli",
-            "ebook-rag=cli:rag",
+            "ebook-processor=ai_ebook_processor.cli.commands:cli",
+            "ebook-rag=ai_ebook_processor.cli.commands:rag_cli",
         ],
     },
     classifiers=[
@@ -68,4 +59,11 @@ setup(
     ],
     python_requires=">=3.8",
     keywords="ebook ai ollama rag nlp text-processing",
+    include_package_data=True,
+    package_data={
+        "ai_ebook_processor": [
+            "config/*.yml",
+            "config/*.yaml",
+        ],
+    },
 )

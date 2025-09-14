@@ -45,9 +45,10 @@ For technical implementation details, see [IMPLEMENTATION_DETAILS.md](IMPLEMENTA
 ## 📦 Installation & Setup
 
 ### Prerequisites
-1. **Python 3.8+** installed on your system
-2. **Ollama** installed and running
-3. At least one Ollama model downloaded
+1. **Python 3.9+** installed on your system
+2. **Poetry** for dependency management (recommended) or pip
+3. **Ollama** installed and running
+4. At least one Ollama model downloaded
 
 ### Step 1: Install Ollama
 ```bash
@@ -69,9 +70,32 @@ ollama pull mistral       # Alternative
 ollama pull codellama     # For code analysis
 ```
 
-### Step 3: Install the Ebook Processor
+### Step 3: Install Poetry (Recommended)
+```bash
+# Install Poetry (if not already installed)
+curl -sSL https://install.python-poetry.org | python3 -
 
-**Option A: Package Installation (Recommended)**
+# Or on Windows:
+# (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+```
+
+### Step 4: Install the Ebook Processor
+
+**Option A: Poetry Installation (Recommended)**
+```bash
+# Clone the repository
+git clone https://github.com/anthonypdawson/ai-ebook-processor.git
+cd ai-ebook-processor
+
+# Install dependencies with Poetry
+poetry install
+
+# Use Poetry to run commands:
+poetry run ebook-processor --help
+poetry run ebook-processor rag add-book "path/to/book.epub"
+```
+
+**Option B: Package Installation**
 ```bash
 # Clone the repository
 git clone https://github.com/anthonypdawson/ai-ebook-processor.git
@@ -80,35 +104,46 @@ cd ai-ebook-processor
 # Install the package
 pip install -e .
 
-# Now you can use clean CLI commands:
-python -m cli --help
-python -m cli rag add-book "path/to/book.epub"
+# Use it anywhere
+python -m ai_ebook_processor --help
+python -m ai_ebook_processor rag add-book "path/to/book.epub"
 ```
 
-**Option B: Direct Usage**
+**Option C: Direct Usage**
 ```bash
 # Install dependencies only
 pip install -r requirements.txt
 
-# Run directly
-python cli.py --help
-python cli.py rag add-book "path/to/book.epub"
+# Run using module syntax
+python -m ai_ebook_processor --help
+python -m ai_ebook_processor rag add-book "path/to/book.epub"
 ```
 
-### Step 4: Convenience Wrappers (Optional)
-For even easier usage, wrapper scripts are included:
+### Step 5: Convenience Wrappers (Optional)
+For even easier usage, wrapper scripts are included that work from anywhere on your system:
 
 **Windows:**
 ```cmd
-ebook-processor.bat --help
-ebook-processor.bat rag add-book "book.epub"
+# Works from any directory - uses Poetry automatically if available
+~/src/ai-ebook-processor/scripts/ebook-processor.bat --help
+~/src/ai-ebook-processor/scripts/ebook-processor.bat rag add-book "book.epub"
+
+# Or use Python wrapper (cross-platform)
+python ~/src/ai-ebook-processor/scripts/ebook-processor.py --help
 ```
 
-**Linux/Mac:**
+**Linux/Mac/Windows (with bash):**
 ```bash
-./ebook-processor --help
-./ebook-processor rag add-book "book.epub"
+# Works from any directory - uses Poetry automatically if available
+~/src/ai-ebook-processor/scripts/ebook-processor --help
+~/src/ai-ebook-processor/scripts/ebook-processor rag add-book "book.epub"
 ```
+
+**Features of the wrapper scripts:**
+- 🌍 Work from any directory on your system
+- 🎯 Automatically use Poetry if available, with fallback to virtual env
+- 📦 Set up proper Python paths automatically
+- 🔄 Intelligent environment detection
 
 ## 🚀 Quick Start
 
@@ -117,25 +152,66 @@ ebook-processor.bat rag add-book "book.epub"
 ollama serve
 ```
 
-### 2. Import Books to RAG System (Recommended)
+### 2. Start Interactive REPL (Recommended)
 ```bash
-# Import a single book
-python -m cli rag add-book "path/to/your/book.epub"
+# Using Poetry (recommended)
+poetry run ebook-processor repl
 
-# Import entire directory
-python -m cli rag add-directory "path/to/ebooks/"
-
-# Ask questions about your books
-python -m cli rag ask "What are the main themes in my collection?"
+# Or using Python module
+python -m ai_ebook_processor repl
 ```
 
-### 3. Traditional Processing (Alternative)
+**REPL Session Example:**
 ```bash
-# Process a single ebook
-python -m cli process-file "path/to/your/book.epub"
+🤖 AI Ebook Processor REPL
+Type 'help' for available commands, 'exit' to quit
+
+[~] ebook> cd ~/Documents/Books
+[Documents/Books] ebook> ls
+📁 Fiction/
+📁 Non-Fiction/
+📚 book1.epub
+📚 book2.pdf
+
+[Documents/Books] ebook> add Fiction/
+Processing 15 books... ✓ Successfully added 15/15 books
+
+[Documents/Books] ebook> ask What are the main themes in my collection?
+Answer:
+──────────────────────────────────────────────────
+Based on your fiction collection, the main themes include...
+
+[Documents/Books] ebook> search "time travel"
+Search results (3 found):
+──────────────────────────────────────────────────
+1. The Time Machine (relevance: 0.92)
+   A scientist invents a machine that allows him to travel through time...
+```
+
+### 3. Traditional CLI Commands (Alternative)
+```bash
+# Using Poetry (recommended)
+poetry run ebook-processor rag add-book "path/to/your/book.epub"
+poetry run ebook-processor rag add-directory "path/to/ebooks/"
+poetry run ebook-processor rag ask "What are the main themes in my collection?"
+
+# Or using Python module
+python -m ai_ebook_processor rag add-book "path/to/your/book.epub"
+python -m ai_ebook_processor rag add-directory "path/to/ebooks/"
+python -m ai_ebook_processor rag ask "What are the main themes in my collection?"
+```
+
+### 4. Traditional Processing (Alternative)
+```bash
+# Using Poetry
+poetry run ebook-processor process-file "path/to/your/book.epub"
+
+# Or using Python module
+python -m ai_ebook_processor process-file "path/to/your/book.epub"
+python -m ai_ebook_processor process-file "path/to/your/book.epub"
 
 # Process all ebooks in a directory  
-python -m cli process-directory "path/to/ebooks/"
+python -m ai_ebook_processor process-directory "path/to/ebooks/"
 ```
 
 ## 🖥️ CLI Commands Reference
@@ -143,61 +219,191 @@ python -m cli process-directory "path/to/ebooks/"
 ### Main Commands
 ```bash
 # Show all available commands
-python -m cli --help
+python -m ai_ebook_processor --help
 
 # Configuration management
-python -m cli config-show                    # Show current config
-python -m cli config-set ollama.model llama2 # Set default model  
-python -m cli models                         # List available models
+python -m ai_ebook_processor config-show                       # Show current config
+python -m ai_ebook_processor config-set ollama.model llama2    # Set default model  
+python -m ai_ebook_processor models                            # List available models
 
 # Discover books without processing
-python -m cli discover "path/to/ebooks/"     # Find all ebooks in directory
+python -m ai_ebook_processor discover "path/to/ebooks/"        # Find all ebooks in directory
 ```
 
 ### RAG System Commands
 ```bash
 # Import books
-python -m cli rag add-book "book.epub"       # Add single book
-python -m cli rag add-book "book.pdf" --fast # Fast import (skip AI analysis)
-python -m cli rag add-directory "path/"      # Add entire directory
+python -m ai_ebook_processor rag add-book "book.epub"          # Add single book
+python -m ai_ebook_processor rag add-book "book.pdf" --fast    # Fast import (skip AI analysis)
+python -m ai_ebook_processor rag add-directory "path/"         # Add entire directory
 
 # Query your collection
-python -m cli rag ask "What themes appear in my books?"
-python -m cli rag search "artificial intelligence"
-python -m cli rag stats                      # Show database statistics
+python -m ai_ebook_processor rag ask "What themes appear in my books?"
+python -m ai_ebook_processor rag search "artificial intelligence"
+python -m ai_ebook_processor rag stats                         # Show database statistics
 ```
 
 ### Alternative Usage
 ```bash
-# Use wrapper scripts (after installation)
-ebook-processor.bat rag add-book "book.epub"     # Windows
-./ebook-processor rag add-book "book.epub"       # Linux/Mac
+# Use wrapper scripts from anywhere (recommended for convenience)
+~/src/ai-ebook-processor/scripts/ebook-processor rag add-book "book.epub"     # Unix/bash
+~/src/ai-ebook-processor/scripts/ebook-processor.bat rag add-book "book.epub" # Windows
+python ~/src/ai-ebook-processor/scripts/ebook-processor.py rag add-book "book.epub" # Cross-platform
 
-# Traditional method
-python cli.py rag add-book "book.epub"           # Direct file execution
+# Module execution (from project directory)
+python -m ai_ebook_processor rag add-book "book.epub"       # Package module execution
+
+# After pip install -e . (from anywhere)
+ebook-processor rag add-book "book.epub"                    # If installed as package
 ```
+
+## 🎯 Interactive REPL Mode
+
+The REPL (Read-Eval-Print Loop) provides a seamless interactive experience for managing your ebook collection. No more typing long commands repeatedly!
+
+### Starting the REPL
+```bash
+# Using Poetry (recommended)
+poetry run ebook-processor repl
+
+# Using Python module
+python -m ai_ebook_processor repl
+
+# Using wrapper scripts
+~/src/ai-ebook-processor/scripts/ebook-processor repl
+```
+
+### REPL Features
+- **Session Persistence**: Current directory and command history maintained
+- **Tab Completion**: Commands and file paths with intelligent completion
+- **Command History**: Navigate previous commands with ↑/↓ arrows
+- **Directory Navigation**: Built-in `cd`, `pwd`, `ls` commands
+- **Command Aliases**: Short aliases for frequently used commands
+
+### REPL Commands
+
+**File System Navigation:**
+```bash
+[~] ebook> cd ~/Documents/Books         # Change directory
+[Documents/Books] ebook> pwd            # Show current directory
+[Documents/Books] ebook> ls             # List contents with ebook highlighting
+📁 Fiction/
+📁 Non-Fiction/
+📚 book1.epub
+📚 book2.pdf
+```
+
+**RAG Operations:**
+```bash
+# Add books (supports tab completion)
+[Books] ebook> add book1.epub           # Add single book
+[Books] ebook> add Fiction/             # Add entire directory  
+[Books] ebook> add .                    # Add all books in current directory
+
+# Query your collection
+[Books] ebook> ask What are the main themes in my collection?
+[Books] ebook> q Who is the protagonist in my fantasy books?  # Short alias
+
+# Search and discover
+[Books] ebook> search "time travel"     # Search for specific content
+[Books] ebook> list                     # List all books in RAG system
+[Books] ebook> l                        # Short alias for list
+```
+
+**Convenience Features:**
+```bash
+[Books] ebook> help                     # Show all commands
+[Books] ebook> clear                    # Clear screen
+[Books] ebook> exit                     # Exit REPL
+```
+
+### REPL Workflow Examples
+
+**Initial Setup:**
+```bash
+poetry run ebook-processor repl
+
+🤖 AI Ebook Processor REPL
+Type 'help' for available commands, 'exit' to quit
+
+[~] ebook> cd ~/Documents/Calibre Library
+[Calibre Library] ebook> ls
+📁 Author Name/
+📁 Another Author/
+...
+
+[Calibre Library] ebook> add .
+Processing 127 books... ✓ Successfully added 115/127 books
+
+[Calibre Library] ebook> list
+Books in RAG system (115 total):
+──────────────────────────────────────────────────
+  1. The Great Gatsby
+     Author: F. Scott Fitzgerald
+     Chunks: 45
+
+  2. 1984
+     Author: George Orwell  
+     Chunks: 62
+...
+```
+
+**Interactive Analysis:**
+```bash
+[Calibre Library] ebook> ask What genres do I read most?
+Answer:
+──────────────────────────────────────────────────
+Based on your collection, you primarily read:
+1. Science Fiction (32% of collection)
+2. Mystery/Thriller (28% of collection)
+3. Literary Fiction (22% of collection)
+...
+
+📚 Sources:
+1. Dune - Frank Herbert
+2. The Girl with the Dragon Tattoo - Stieg Larsson
+3. To Kill a Mockingbird - Harper Lee
+
+[Calibre Library] ebook> search "artificial intelligence"
+Search results (8 found):
+──────────────────────────────────────────────────
+1. Neuromancer (relevance: 0.94)
+   The matrix has its roots in primitive arcade games...
+
+2. I, Robot (relevance: 0.89)  
+   A robot may not injure a human being or, through inaction...
+```
+
+### REPL Aliases
+Save time with short command aliases:
+- `q` → `ask` (query)
+- `a` → `add` 
+- `l` → `list`
+- `s` → `search`
+- `c` → `clear`
+- `ll` → `list` (detailed)
 
 ### 🆕 4. RAG System - Build Your Knowledge Base
 
 ```bash
 # Add a book to your searchable knowledge base
-python cli.py rag add-book "/path/to/book.epub"
+python -m ai_ebook_processor rag add-book "/path/to/book.epub"
 
 # Add entire directory
-python cli.py rag add-directory "/path/to/ebooks" --max-files 10
+python -m ai_ebook_processor rag add-directory "/path/to/ebooks" --max-files 10
 
 # Ask questions about your collection
-python cli.py rag ask "What are the main themes in my books?"
+python -m ai_ebook_processor rag ask "What are the main themes in my books?"
 
 # Search for specific content
-python cli.py rag search "artificial intelligence"
+python -m ai_ebook_processor rag search "artificial intelligence"
 ```
 
 ### 5. Using the Python API
 
 ```python
-from main import EbookProcessorApp
-from rag_system import EnhancedEbookProcessor
+from ai_ebook_processor.core.processor import EbookProcessorApp
+from ai_ebook_processor.rag.system import EnhancedEbookProcessor
 
 # Traditional processing
 app = EbookProcessorApp(model_name="llama2")
@@ -235,27 +441,27 @@ print(answer)
 
 ```bash
 # Show available models
-python cli.py models
+python -m ai_ebook_processor models
 
 # Discover ebooks in a directory
-python cli.py discover /path/to/ebooks
+python -m ai_ebook_processor discover /path/to/ebooks
 
 # Process a single file
-python cli.py process-file book.epub --type analysis
+python -m ai_ebook_processor process-file book.epub --type analysis
 
 # Process directory with custom settings
-python cli.py process-directory /path/to/ebooks \
+python -m ai_ebook_processor process-directory /path/to/ebooks \
   --type summary \
   --output results \
   --recursive \
   --max-files 10
 
 # Show configuration
-python cli.py config-show
+python -m ai_ebook_processor config-show
 
 # Set configuration values
-python cli.py config-set ollama.model "mistral"
-python cli.py config-set processing.chunk_size 5000
+python -m ai_ebook_processor config-set ollama.model "mistral"
+python -m ai_ebook_processor config-set processing.chunk_size 5000
 ```
 
 ### Configuration

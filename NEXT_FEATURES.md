@@ -6,6 +6,23 @@ This document tracks planned features, enhancements, and improvements for the AI
 
 ---
 
+## ✅ Recently Completed
+
+### Interactive REPL Interface (v1.0)
+- **Command-line Shell**: ✅ Seamless interaction without repeated CLI calls
+- **Directory Navigation**: ✅ Built-in `cd`, `pwd`, `ls` commands with tab completion
+- **Session Management**: ✅ Persistent state, command history, graceful error handling
+- **RAG Integration**: ✅ All RAG commands (add, ask, list, search) work in REPL
+- **Visual Feedback**: ✅ Clear prompts, emoji indicators, progress messages
+- **Command Aliases**: ✅ Short aliases (`q` for ask, `a` for add, etc.)
+
+### Package Management Modernization
+- **Poetry Migration**: ✅ Modern dependency management with Poetry
+- **Improved Installation**: ✅ Multiple installation options (Poetry, pip, direct)
+- **Cross-platform Wrappers**: ✅ Scripts that work from any directory
+
+---
+
 ## Priority Features
 
 ### 🔥 High Priority
@@ -18,20 +35,19 @@ This document tracks planned features, enhancements, and improvements for the AI
 - **Query Context Caching**: Cache retrieved chunks to avoid re-searching for follow-up questions
 - **Redis Integration**: Fast, persistent storage with automatic expiration policies
 
-#### 2. Core RAG Quality Improvements 🔥
+#### 2. Desktop GUI Application 🆕
+- **Native Desktop App**: PyQt6/PySide6 desktop application combining REPL and visual interface
+- **Visual Library Management**: Book cover thumbnails, drag-and-drop import, visual categories
+- **Embedded REPL**: Terminal widget within GUI for advanced users
+- **Query Interface**: Chat-like interface for natural language queries with visual results
+- **Progress Visualization**: Visual progress bars, processing status, real-time feedback
+
+#### 3. Core RAG Quality Improvements 🔥
 - **Advanced Chunking Strategy**: Smart chunking that preserves sentence/paragraph boundaries and semantic coherence
 - **Hybrid Retrieval**: Combine semantic search (embeddings) with keyword-based search (BM25) for comprehensive coverage
 - **Result Re-ranking**: Custom scoring algorithms to surface the most relevant passages
 - **Context Window Optimization**: Intelligent chunk size and overlap management for better context preservation
 - **Multi-stage Retrieval**: Initial broad retrieval followed by focused re-ranking
-
-#### 3. Interactive REPL Interface
-- **Command-line Shell**: Seamless interaction without repeated CLI calls
-- **Auto-discovery**: Scan directories for ebooks, show available books without processing
-- **Book Management**: List, browse, and select books from your collection
-- **Book Targeting Commands**: `focus "book"`, `library`, `switch "book"`
-- **Session Management**: Persistent state, command history, graceful error handling
-- **Visual Feedback**: Clear prompts, emoji indicators, progress messages
 
 #### 4. Enhanced Search Strategies
 - **Multi-Query Expansion**: Generate 2-3 query variations and merge results for comprehensive coverage

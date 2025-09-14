@@ -82,8 +82,11 @@ class EbookREPL:
             readline.set_completer(self._complete)
             readline.parse_and_bind("tab: complete")
             
-            # Enable history search with up/down arrows
+            # Enable better tab completion behavior
             readline.parse_and_bind("set show-all-if-ambiguous on")
+            readline.parse_and_bind("set completion-ignore-case on")
+            readline.parse_and_bind("set completion-map-case on")
+            readline.parse_and_bind("set show-all-if-unmodified on")
             
         except ImportError:
             # readline not available on this system
@@ -114,46 +117,97 @@ class EbookREPL:
         line = readline.get_line_buffer()
         tokens = shlex.split(line) if line.strip() else []
         
+        # If we're at the beginning or completing a command
         if not tokens or (len(tokens) == 1 and not line.endswith(' ')):
             # Complete command names
             commands = list(self.commands.keys()) + list(self.aliases.keys())
             matches = [cmd for cmd in commands if cmd.startswith(text)]
         else:
-            # Complete file paths
-            matches = self._complete_path(text)
+            # We're completing arguments - check if it's a path-based command
+            command = tokens[0] if tokens else ""
+            if command in ['cd', 'add'] or command in self.aliases:
+                # Complete file paths for these commands
+                matches = self._complete_path(text)
+            else:
+                # No completion for other commands
+                matches = []
         
         try:
-            return matches[state]
-        except IndexError:
+            return matches[state] if state < len(matches) else None
+        except (IndexError, TypeError):
             return None
     
     def _complete_path(self, text: str) -> List[str]:
-        """Complete file paths."""
+        """Complete file paths with better handling."""
         if not text:
             text = "."
         
         try:
+            # Handle Windows drive letter completion (any single letter followed by colon)
+            import re
+            if re.match(r'^[A-Za-z]:$', text):
+                # Drive letter completion - check if drive exists
+                drive_path = Path(text + "\\")
+                if drive_path.exists():
+                    return [text + "\\"]
+                return []
+            
             path = Path(text)
-            if path.is_absolute():
-                base_dir = path.parent
-                prefix = path.name
+            
+            # Handle different path scenarios
+            if path.is_absolute() or text.startswith("\\\\"):
+                # Absolute path or UNC path
+                try:
+                    if text.endswith("\\") or text.endswith("/"):
+                        base_dir = path
+                        prefix = ""
+                    else:
+                        base_dir = path.parent
+                        prefix = path.name
+                except Exception:
+                    return []
+                is_absolute = True
             else:
-                base_dir = self.current_directory / path.parent
+                # Relative path
+                parent = path.parent if str(path.parent) != "." else Path()
+                base_dir = self.current_directory / parent
                 prefix = path.name
+                is_absolute = False
             
             if not base_dir.exists():
                 return []
             
             matches = []
-            for item in base_dir.iterdir():
-                if item.name.startswith(prefix):
-                    if item.is_dir():
-                        matches.append(str(item) + "/")
-                    else:
-                        matches.append(str(item))
+            try:
+                for item in base_dir.iterdir():
+                    if item.name.startswith(prefix):
+                        if is_absolute:
+                            # For absolute paths, return the full path
+                            if item.is_dir():
+                                matches.append(str(item) + os.sep)
+                            else:
+                                matches.append(str(item))
+                        else:
+                            # For relative paths, construct the proper relative path
+                            if str(path.parent) != ".":
+                                # Include the parent path
+                                parent_part = str(path.parent) + os.sep
+                                if item.is_dir():
+                                    matches.append(parent_part + item.name + os.sep)
+                                else:
+                                    matches.append(parent_part + item.name)
+                            else:
+                                # Just the name
+                                if item.is_dir():
+                                    matches.append(item.name + os.sep)
+                                else:
+                                    matches.append(item.name)
+            except PermissionError:
+                # Can't read directory, return empty list
+                return []
             
             return sorted(matches)
-        except (OSError, ValueError):
+        except (OSError, ValueError, Exception):
             return []
     
     def run(self):

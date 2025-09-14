@@ -1,0 +1,93 @@
+"""
+Configuration management for AI Ebook Processor
+
+Handles loading and managing configuration from various sources.
+"""
+
+import yaml
+import json
+from pathlib import Path
+from typing import Dict, Any
+
+
+DEFAULT_CONFIG = {
+    'ollama': {
+        'model': 'llama3.2:latest',
+        'host': 'http://localhost:11434',
+        'temperature': 0.7
+    },
+    'processing': {
+        'chunk_size': 4000,
+        'chunk_overlap': 200,
+        'output_format': 'markdown',
+        'save_chunks': False,
+        'processing_mode': 'summary'
+    },
+    'output': {
+        'directory': 'output',
+        'create_report': True
+    }
+}
+
+
+class Config:
+    """Configuration management class"""
+    
+    def __init__(self, config_path: str = None):
+        self.config_path = config_path or 'config/config.yml'
+        self.config = DEFAULT_CONFIG.copy()
+        self.load_config()
+    
+    def load_config(self):
+        """Load configuration from file"""
+        config_file = Path(self.config_path)
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    loaded_config = yaml.safe_load(f)
+                    self._merge_config(self.config, loaded_config)
+                print(f"Configuration loaded from {self.config_path}")
+            except Exception as e:
+                print(f"Error loading config: {e}")
+        else:
+            self.save_config()
+            print(f"Default configuration created at {self.config_path}")
+    
+    def save_config(self):
+        """Save current configuration to file"""
+        try:
+            config_file = Path(self.config_path)
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_file, 'w') as f:
+                yaml.dump(self.config, f, default_flow_style=False)
+        except Exception as e:
+            print(f"Error saving config: {e}")
+    
+    def _merge_config(self, base: Dict, update: Dict):
+        """Recursively merge configuration dictionaries"""
+        for key, value in update.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._merge_config(base[key], value)
+            else:
+                base[key] = value
+    
+    def get(self, path: str, default=None):
+        """Get configuration value by dot-separated path"""
+        keys = path.split('.')
+        value = self.config
+        try:
+            for key in keys:
+                value = value[key]
+            return value
+        except (KeyError, TypeError):
+            return default
+    
+    def set(self, path: str, value: Any):
+        """Set configuration value by dot-separated path"""
+        keys = path.split('.')
+        config = self.config
+        for key in keys[:-1]:
+            if key not in config:
+                config[key] = {}
+            config = config[key]
+        config[keys[-1]] = value

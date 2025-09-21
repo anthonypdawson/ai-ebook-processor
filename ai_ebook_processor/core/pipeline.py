@@ -378,6 +378,10 @@ class ProcessingPipeline:
             combined_result = self._combine_chunk_results(
                 chunks, processing_results, metadata
             )
+
+            # Attach raw chunk texts for downstream RAG ingestion (canonical source of truth)
+            combined_result['raw_chunks'] = [c.text for c in chunks]
+            combined_result['raw_text'] = "\n\n".join(combined_result['raw_chunks'])
             
             # Step 4: Create book-level summary if requested
             if self.config.processing_mode == 'summary':
@@ -469,6 +473,9 @@ class ProcessingPipeline:
                 ]
             },
             'combined_result': combined_text,
+            # raw canonical text for RAG (do not rely on combined_result which may contain LLM transformations)
+            'raw_chunks': [c.text for c in chunks],
+            'raw_text': "\n\n".join([c.text for c in chunks]),
             'individual_results': processing_results if self.config.save_chunks else None,
             'timestamp': datetime.now().isoformat()
         }

@@ -253,19 +253,21 @@ class EbookRAGSystem:
                     self.remove_book(book_id)
                     logger.info(f"Overwriting existing book {book_id}")
             
-            # Get the processed content
-            content = result.get('combined_result', '')
-            if not content:
-                logger.warning(f"No content to add for {book_id}")
-                return f"No content found for {book_id}"
-            
-            # Create chunks for vector storage
-            chunks = self._chunk_content(content, chunk_size=1000)
+            # Prefer raw canonical text (list of original chunk texts) over LLM combined summaries
+            raw_chunks = result.get('raw_chunks') or []
+            if raw_chunks:
+                chunks = raw_chunks  # already chunked semantically; do not re-summarize
+            else:
+                # Fallback to combined_result (legacy) if raw not present
+                content = result.get('raw_text') or result.get('combined_result', '')
+                if not content:
+                    logger.warning(f"No content to add for {book_id}")
+                    return f"No content found for {book_id}"
+                chunks = self._chunk_content(content, chunk_size=1000)
             
             if not chunks:
                 logger.warning(f"No chunks created for {book_id}")
                 return f"No chunks created for {book_id}"
-            
             # Add to database
             for i, chunk in enumerate(chunks):
                 doc_id = f"{book_id}_chunk_{i}"

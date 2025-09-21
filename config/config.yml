@@ -11,3 +11,7 @@ processing:
   output_format: markdown
   processing_mode: summary
   save_chunks: false
+  summary_mode: classic   # classic | strict (strict enforces grounded citations)
+  summary_max_chars: 12000
+  summary_temperature: 0.15
+  require_citations: true

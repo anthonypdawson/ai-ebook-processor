@@ -15,3 +15,30 @@ processing:
   summary_max_chars: 12000
   summary_temperature: 0.15
   require_citations: true
+  
+  # Parallel processing configuration
+  parallel:
+    enabled: true
+    book_workers: 3        # Number of books to process simultaneously
+    chunk_workers: 4       # Parallel chunks within a single book
+    embedding_batch_size: 32  # Batch size for embedding generation
+    queue_timeout: 300     # Maximum seconds per book
+    
+  progress:
+    enabled: true
+    update_interval: 2     # Progress update frequency (seconds)  
+    show_book_names: true  # Display current book being processed
+    show_chunk_progress: true  # Show chunk-level progress
+    show_embedding_progress: true  # Show embedding generation progress
+
+# Feature flags for incremental rollout
+features:
+  parallel_processing: true
+  hallucination_mitigation: false  # Enable after parallel working
+  dual_embeddings: false           # Enable after hallucination complete
+
+# RAG system configuration (for future use)
+rag:
+  persist_directory: "ebook_db"
+  collection_name: "ebook_collection"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"

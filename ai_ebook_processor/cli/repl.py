@@ -10,6 +10,8 @@ import os
 import sys
 import shlex
 import readline
+import asyncio
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
 
@@ -17,6 +19,10 @@ import click
 
 from ai_ebook_processor.core.processor import EbookProcessorApp
 from ai_ebook_processor.utils.config import Config
+from ai_ebook_processor.core.parallel import create_parallel_processor
+from ai_ebook_processor.core.pipeline import ProcessingPipeline
+
+logger = logging.getLogger(__name__)
 
 # Import RAG functionality
 try:
@@ -33,9 +39,14 @@ class EbookREPL:
         self.current_directory = Path.cwd()
         self.rag_system = None
         self.processor = None
+        self.parallel_processor = None
         self.config = Config()
         self.history_file = Path.home() / ".ebook_processor_history"
         self.running = True
+        
+        # Check if parallel processing is enabled
+        self.parallel_enabled = self.config.get('features.parallel_processing', True) and \
+                               self.config.get('processing.parallel.enabled', True)
         
         # Command registry
         self.commands: Dict[str, Callable] = {
@@ -48,6 +59,7 @@ class EbookREPL:
             'ls': self.cmd_ls,
             'dir': self.cmd_ls,  # Windows alias
             'add': self.cmd_add,
+            'batch': self.cmd_batch,
             'ask': self.cmd_ask,
             'list': self.cmd_list,
             'search': self.cmd_search,
@@ -55,11 +67,13 @@ class EbookREPL:
             'clear': self.cmd_clear,
         }
         
-        # Command aliases for convenience
+        # Command aliases for convenience (RAG-focused)
         self.aliases: Dict[str, str] = {
-            'q': 'ask',
-            'a': 'add',
-            'l': 'list',
+            'q': 'ask',      # Primary: Ask questions about your books
+            'a': 'add',      # Primary: Add books to knowledge base  
+            'b': 'batch',    # Primary: Batch add multiple directories
+            'l': 'list',     # Show your book collection
+            's': 'search',   # Search within your books
             's': 'search',
             'c': 'clear',
             'll': 'list',
@@ -104,11 +118,59 @@ class EbookREPL:
             model_name = self.config.get('ollama.model', 'llama3.2:latest')
             ollama_host = self.config.get('ollama.host', 'http://localhost:11434')
             
+            # RAG system is the primary feature
             self.rag_system = EbookRAGSystem()
+            # Processor is mainly used internally by RAG for text processing
             self.processor = EbookProcessorApp(model_name=model_name, ollama_host=ollama_host)
-            click.echo("✓ Systems initialized successfully")
+            
+            # Initialize parallel processor if enabled (for RAG performance)
+            if self.parallel_enabled:
+                parallel_config = self.config.get('processing.parallel', {})
+                self.parallel_processor = create_parallel_processor(parallel_config, self._process_book_for_rag)
+                click.echo("✓ RAG system with parallel processing initialized")
+            else:
+                click.echo("✓ RAG system initialized")
         except Exception as e:
-            click.echo(f"⚠ Warning: Could not initialize systems: {e}", err=True)
+            click.echo(f"⚠ Warning: Could not initialize RAG system: {e}", err=True)
+            click.echo("  Some features may be unavailable")
+    
+    def _run_async(self, coro):
+        """Run an async coroutine in the REPL context."""
+        try:
+            # Try to get existing event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an already running loop, create a new task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    return future.result()
+            else:
+                return loop.run_until_complete(coro)
+        except RuntimeError:
+            # No event loop, create a new one
+            return asyncio.run(coro)
+    
+    def _process_book_for_rag(self, book_path: Path) -> Dict[str, Any]:
+        """Process a single book and add to RAG system."""
+        try:
+            # Use the enhanced RAG system which does both processing and ingestion
+            result = self.rag_system.add_ebook_with_pages(str(book_path))
+            
+            return {
+                'success': True,
+                'title': result.get('title', book_path.name),
+                'path': str(book_path),
+                'message': result
+            }
+        except Exception as e:
+            logger.error(f"Error processing book for RAG: {book_path}: {e}")
+            return {
+                'success': False,
+                'title': book_path.name,
+                'path': str(book_path),
+                'error': str(e)
+            }
     
     def _save_history(self):
         """Save command history to file."""
@@ -285,9 +347,29 @@ class EbookREPL:
     
     def _print_welcome(self):
         """Print welcome message."""
-        click.echo("🤖 AI Ebook Processor REPL")
-        click.echo("Type 'help' for available commands, 'exit' to quit")
-        click.echo(f"Current directory: {self.current_directory}")
+        click.echo("� AI Ebook RAG System - Interactive Shell")
+        click.echo("Build your intelligent book collection and ask questions about your library!")
+        click.echo()
+        
+        if not RAG_AVAILABLE:
+            click.echo("⚠️  RAG system unavailable - install: pip install chromadb sentence-transformers")
+        else:
+            try:
+                book_count = 0
+                if self.rag_system:
+                    book_count = len(self.rag_system.list_books())
+                if book_count > 0:
+                    click.echo(f"✅ Knowledge base: {book_count} books ready to query")
+                    click.echo("💡 Try: ask What are the main themes across my books?")
+                else:
+                    click.echo("📚 Empty knowledge base - add your first book!")
+                    click.echo("💡 Try: add book.epub  or  add ~/Books/")
+            except:
+                click.echo("✅ RAG system ready - add books to start!")
+        
+        click.echo()
+        click.echo("Type 'help' for commands, 'q <question>' to ask, 'exit' to quit")
+        click.echo(f"📁 Current directory: {self.current_directory}")
         click.echo()
     
     def _get_relative_path(self) -> str:
@@ -362,31 +444,67 @@ class EbookREPL:
         click.echo("  ls, dir           List directory contents (📚 highlights ebooks)")
         click.echo()
         
-        click.echo("🧠 RAG Operations:")
+        click.echo("🧠 RAG Operations (Primary Features):")
         click.echo("  add <file/dir>    Add book(s) to RAG knowledge base")
         click.echo("                    Examples: add book.epub")
         click.echo("                              add Fiction/")
         click.echo("                              add .  (current directory)")
+        if self.parallel_enabled:
+            click.echo("                    📦 Parallel processing enabled for directories")
+        click.echo()
+        click.echo("  batch <dir1> <dir2> ... Process multiple directories in parallel")
+        click.echo("                    Example: batch Fiction/ NonFiction/ SciFi/")
+        if self.parallel_enabled:
+            click.echo("                    🚀 Uses parallel processing for optimal speed")
         click.echo()
         click.echo("  ask <question>    Ask questions about your book collection")
         click.echo("                    Examples: ask What themes appear in my books?")
-        click.echo("                              ask Who is the main character in 1984?")
+        click.echo("                              ask Compare the writing styles")
+        click.echo("                              ask What books mention artificial intelligence?")
         click.echo()
-        click.echo("  list              List all books in your RAG system")
-        click.echo("  search <term>     Search for specific content in your books")
-        click.echo("                    Example: search \"artificial intelligence\"")
+        click.echo("  search <query>    Search for specific content in your books")
+        click.echo("                    Example: search character development techniques")
+        click.echo()
+        click.echo("  list              Show all books in your RAG knowledge base")
+        click.echo("                    Shows processing status and book metadata")
         click.echo()
         
-        click.echo("⚙️  Configuration:")
+        click.echo("🔧 System Management:")
         click.echo("  config            Show current system configuration")
+        if self.parallel_enabled:
+            click.echo("                    📊 Parallel processing: ENABLED")
+        else:
+            click.echo()
+        
+        click.echo("� Navigation & Aliases:")
+        click.echo("  q <question>      Quick alias for 'ask'")
+        click.echo("  a <file/dir>      Quick alias for 'add'") 
+        click.echo("  b <dirs...>       Quick alias for 'batch'")
+        click.echo("  l                 Quick alias for 'list'")
+        click.echo("  s <query>         Quick alias for 'search'")
         click.echo()
         
-        click.echo("🚀 Quick Aliases (save typing):")
-        click.echo("  q  → ask          Quick queries")
-        click.echo("  a  → add          Quick book adding")  
-        click.echo("  l  → list         Quick book listing")
-        click.echo("  ll → list         Detailed book listing")
-        click.echo("  s  → search       Quick searching")
+        click.echo("💡 Pro Tips:")
+        click.echo("  - Use tab completion for file paths")
+        click.echo("  - Add entire directories to build your knowledge base quickly") 
+        click.echo("  - Ask follow-up questions - the AI remembers the conversation context")
+        click.echo("  - Use specific queries for better results: 'themes in Victorian novels'")
+        if self.parallel_enabled:
+            click.echo("  - Parallel processing makes large collections fast to ingest")
+        
+        if not RAG_AVAILABLE:
+            click.echo()
+            click.echo("⚠️  RAG System Status: NOT AVAILABLE")
+            click.echo("    Install dependencies: pip install chromadb sentence-transformers")
+        else:
+            book_count = 0
+            try:
+                if self.rag_system:
+                    book_count = len(self.rag_system.list_books())
+            except:
+                pass
+            click.echo()
+            click.echo(f"✅ RAG System Status: ACTIVE ({book_count} books in knowledge base)")
         click.echo("  c  → clear        Quick screen clear")
         click.echo()
         
@@ -512,10 +630,25 @@ class EbookREPL:
                 self.rag_system = EbookRAGSystem()
             
             if path.is_file():
+                # Single file processing - use parallel chunk processing if enabled
                 click.echo(f"Adding book: {path.name}")
-                with click.progressbar(length=1, label='Processing') as bar:
-                    result = self.rag_system.add_book(str(path))
-                    bar.update(1)
+                
+                if self.parallel_enabled and self.parallel_processor:
+                    # Use parallel processing (includes parallel chunk processing)
+                    click.echo("🚀 Using parallel chunk processing...")
+                    try:
+                        results = self._run_async(self.parallel_processor.process_books_parallel([path]))
+                        result = results[0] if results else {'success': False, 'error': 'No result'}
+                    except Exception as e:
+                        click.echo(f"Parallel processing failed, falling back to sequential: {e}")
+                        result = self.rag_system.add_ebook_with_pages(str(path))
+                        result = {'success': True, 'title': path.name} if result else {'success': False, 'error': 'Processing failed'}
+                else:
+                    # Sequential processing
+                    with click.progressbar(length=1, label='Processing') as bar:
+                        result = self.rag_system.add_ebook_with_pages(str(path))
+                        bar.update(1)
+                        result = {'success': True, 'title': path.name} if result else {'success': False, 'error': 'Processing failed'}
                     
                 if result.get('success'):
                     click.echo(f"✓ Book '{result.get('title', path.name)}' added successfully")
@@ -523,6 +656,7 @@ class EbookREPL:
                     click.echo(f"✗ Failed to add book: {result.get('error', 'Unknown error')}", err=True)
                     
             elif path.is_dir():
+                # Directory processing - use parallel if enabled
                 click.echo(f"Adding books from directory: {path}")
                 
                 # Find ebook files
@@ -537,16 +671,67 @@ class EbookREPL:
                     return
                 
                 click.echo(f"Found {len(ebook_files)} ebook files")
-                successful = 0
                 
-                with click.progressbar(ebook_files, label='Processing books') as bar:
-                    for ebook_file in bar:
-                        try:
-                            result = self.rag_system.add_book(str(ebook_file))
-                            if result.get('success'):
-                                successful += 1
-                        except Exception as e:
-                            click.echo(f"\nError processing {ebook_file.name}: {e}", err=True)
+                # Use parallel processing if enabled and multiple files
+                if self.parallel_enabled and self.parallel_processor and len(ebook_files) > 1:
+                    click.echo("🚀 Using parallel processing...")
+                    successful = self._run_async(self._process_books_parallel(ebook_files))
+                else:
+                    # Sequential processing (original behavior)
+                    if self.parallel_enabled:
+                        click.echo("📚 Processing sequentially (single file or parallel disabled)")
+                    successful = self._process_books_sequential(ebook_files)
+                
+                click.echo(f"✓ Successfully added {successful}/{len(ebook_files)} books")
+            
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+    
+    def _process_books_sequential(self, ebook_files: List[Path]) -> int:
+        """Process books sequentially (original behavior)."""
+        successful = 0
+        
+        with click.progressbar(ebook_files, label='Processing books') as bar:
+            for ebook_file in bar:
+                try:
+                    result = self.rag_system.add_ebook_with_pages(str(ebook_file))
+                    if result:  # If result is not None/empty, consider it successful
+                        successful += 1
+                except Exception as e:
+                    click.echo(f"\nError processing {ebook_file.name}: {e}", err=True)
+        
+        return successful
+    
+    async def _process_books_parallel(self, ebook_files: List[Path]) -> int:
+        """Process books in parallel using the parallel processor."""
+        if not self.parallel_processor:
+            return self._process_books_sequential(ebook_files)
+        
+        successful = 0
+        
+        try:
+            click.echo("🔄 Starting parallel processing...")
+            click.echo(f"📚 Processing {len(ebook_files)} books with {self.config.get('processing.parallel.book_workers', 3)} workers...")
+            
+            # Use the parallel processor to process all books
+            results = await self.parallel_processor.process_books_parallel(ebook_files)
+            
+            # Count successful results and provide feedback
+            for i, result in enumerate(results):
+                book_name = ebook_files[i].name
+                if result.get('success', False) or result.get('status') == 'complete':
+                    successful += 1
+                    click.echo(f"✓ Processed: {book_name}")
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    click.echo(f"✗ Failed: {book_name} - {error_msg}")
+            
+        except Exception as e:
+            click.echo(f"Parallel processing error: {e}", err=True)
+            # Fall back to sequential
+            return self._process_books_sequential(ebook_files)
+        
+        return successful
                 
                 click.echo(f"✓ Successfully added {successful}/{len(ebook_files)} books")
             else:
@@ -555,6 +740,81 @@ class EbookREPL:
         except Exception as e:
             click.echo(f"Error adding books: {e}", err=True)
     
+    def cmd_batch(self, args: List[str]):
+        """Process multiple directories in parallel (batch processing)."""
+        if not args:
+            click.echo("Usage: batch <directory1> <directory2> ...")
+            click.echo("Example: batch Fiction/ NonFiction/ SciFi/")
+            return
+        
+        if not RAG_AVAILABLE:
+            click.echo("RAG system not available. Please check installation.", err=True)
+            return
+        
+        # Initialize RAG system if needed
+        if not self.rag_system:
+            self.rag_system = EbookRAGSystem()
+        
+        # Collect all directories and validate them
+        directories = []
+        for path_str in args:
+            if path_str == '.':
+                path = self.current_directory
+            else:
+                path = Path(path_str)
+                if not path.is_absolute():
+                    path = self.current_directory / path
+            
+            if not path.exists():
+                click.echo(f"Path not found: {path}", err=True)
+                continue
+            
+            if not path.is_dir():
+                click.echo(f"Not a directory: {path}", err=True)
+                continue
+                
+            directories.append(path)
+        
+        if not directories:
+            click.echo("No valid directories found.", err=True)
+            return
+        
+        click.echo(f"📦 Batch processing {len(directories)} directories...")
+        
+        # Collect all ebook files from all directories
+        all_ebook_files = []
+        ebook_extensions = {'.epub', '.pdf', '.mobi', '.azw', '.azw3', '.txt'}
+        
+        for directory in directories:
+            dir_files = []
+            for ext in ebook_extensions:
+                dir_files.extend(directory.glob(f"*{ext}"))
+                dir_files.extend(directory.glob(f"*{ext.upper()}"))
+            
+            click.echo(f"  📁 {directory.name}: {len(dir_files)} files")
+            all_ebook_files.extend(dir_files)
+        
+        if not all_ebook_files:
+            click.echo("No ebook files found in any directory.")
+            return
+        
+        click.echo(f"\n📚 Found {len(all_ebook_files)} total ebook files")
+        
+        # Use parallel processing if enabled and multiple files
+        if self.parallel_enabled and self.parallel_processor and len(all_ebook_files) > 1:
+            click.echo("🚀 Using parallel batch processing...")
+            successful = self._run_async(self._process_books_parallel(all_ebook_files))
+        else:
+            click.echo("📚 Processing sequentially...")
+            successful = self._process_books_sequential(all_ebook_files)
+        
+        click.echo(f"\n✅ Batch processing complete!")
+        click.echo(f"✓ Successfully processed {successful}/{len(all_ebook_files)} books")
+        
+        if successful < len(all_ebook_files):
+            failed = len(all_ebook_files) - successful
+            click.echo(f"⚠ {failed} books failed to process")
+
     def cmd_ask(self, args: List[str]):
         """Ask a question about your books."""
         if not args:
@@ -674,21 +934,53 @@ class EbookREPL:
             click.echo(f"Error searching: {e}", err=True)
     
     def cmd_config(self, args: List[str]):
-        """Show current configuration."""
+        """Show current configuration with RAG-focused information."""
         try:
-            click.echo("Current configuration:")
+            click.echo("🧠 RAG System Configuration:")
             click.echo(f"  Config file: {self.config.config_path}")
             click.echo()
             
-            # Display configuration sections
-            for section, values in self.config.config.items():
-                click.echo(f"[{section}]")
-                if isinstance(values, dict):
-                    for key, value in values.items():
-                        click.echo(f"  {key}: {value}")
-                else:
-                    click.echo(f"  {values}")
+            # Show RAG-specific status first
+            if RAG_AVAILABLE and self.rag_system:
+                try:
+                    books = self.rag_system.list_books()
+                    total_chunks = sum(book.get('chunk_count', 0) for book in books)
+                    click.echo("📚 Knowledge Base Status:")
+                    click.echo(f"  Books indexed: {len(books)}")
+                    click.echo(f"  Total chunks: {total_chunks}")
+                    click.echo(f"  Database path: {self.rag_system.db_path}")
+                    click.echo()
+                except:
+                    click.echo("📚 Knowledge Base Status: Unable to load stats")
+                    click.echo()
+            
+            # Show performance settings
+            if self.parallel_enabled:
+                parallel_config = self.config.get('processing.parallel', {})
+                click.echo("🚀 Performance Settings:")
+                click.echo(f"  Parallel processing: ENABLED")
+                click.echo(f"  Book workers: {parallel_config.get('book_workers', 3)}")
+                click.echo(f"  Chunk workers: {parallel_config.get('chunk_workers', 4)}")
+                click.echo(f"  Batch size: {parallel_config.get('embedding_batch_size', 32)}")
                 click.echo()
+            else:
+                click.echo("🚀 Performance Settings:")
+                click.echo("  Parallel processing: DISABLED")
+                click.echo()
+            
+            # Show LLM settings
+            click.echo("🤖 Language Model Settings:")
+            click.echo(f"  Model: {self.config.get('ollama.model', 'llama3.2:latest')}")
+            click.echo(f"  Host: {self.config.get('ollama.host', 'http://localhost:11434')}")
+            click.echo(f"  Temperature: {self.config.get('ollama.temperature', 0.7)}")
+            click.echo()
+            
+            # Show processing settings
+            click.echo("⚙️ Text Processing Settings:")
+            click.echo(f"  Chunk size: {self.config.get('processing.chunk_size', 4000)}")
+            click.echo(f"  Chunk overlap: {self.config.get('processing.chunk_overlap', 200)}")
+            click.echo(f"  Summary mode: {self.config.get('processing.summary_mode', 'classic')}")
+            
         except Exception as e:
             click.echo(f"Error showing config: {e}", err=True)
 

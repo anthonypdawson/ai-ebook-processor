@@ -306,6 +306,149 @@ class EbookRAGSystem:
         for result in results:
             self.add_processed_ebook(result)
     
+    def add_multiple_ebooks_batch(self, results: List[Dict], batch_size: int = 50) -> Dict[str, Any]:
+        """
+        Add multiple processed ebooks to the database with batch optimization.
+        
+        Args:
+            results: List of processed ebook results
+            batch_size: Number of chunks to batch together for embedding/storage
+            
+        Returns:
+            Dictionary with batch processing statistics
+        """
+        stats = {
+            'total_books': len(results),
+            'successful_books': 0,
+            'failed_books': 0,
+            'total_chunks': 0,
+            'processing_time': 0,
+            'errors': []
+        }
+        
+        import time
+        start_time = time.time()
+        
+        try:
+            # Collect all chunks from all books for batch processing
+            all_texts = []
+            all_metadatas = []
+            all_ids = []
+            book_chunk_counts = {}
+            
+            for result in results:
+                try:
+                    if not result.get('raw_chunks'):
+                        stats['failed_books'] += 1
+                        stats['errors'].append(f"No raw chunks in result for {result.get('metadata', {}).get('title', 'unknown')}")
+                        continue
+                    
+                    book_title = result.get('metadata', {}).get('title', 'Unknown')
+                    book_author = result.get('metadata', {}).get('author', 'Unknown')
+                    
+                    # Use raw_chunks for embedding (not combined_result which may contain LLM output)
+                    chunks = result.get('raw_chunks', [])
+                    book_chunk_counts[book_title] = len(chunks)
+                    
+                    for i, chunk_text in enumerate(chunks):
+                        chunk_id = f"{book_title}_{book_author}_{i}"
+                        
+                        all_texts.append(chunk_text)
+                        all_metadatas.append({
+                            'book_title': book_title,
+                            'book_author': book_author,
+                            'chunk_index': i,
+                            'total_chunks': len(chunks),
+                            'file_path': result.get('metadata', {}).get('file_path', ''),
+                            'type': 'raw'  # Mark as raw text for future dual embedding support
+                        })
+                        all_ids.append(chunk_id)
+                    
+                    stats['successful_books'] += 1
+                    stats['total_chunks'] += len(chunks)
+                    
+                except Exception as e:
+                    stats['failed_books'] += 1
+                    error_msg = f"Error processing book {result.get('metadata', {}).get('title', 'unknown')}: {e}"
+                    stats['errors'].append(error_msg)
+                    logger.error(error_msg)
+            
+            # Batch insert all chunks at once
+            if all_texts:
+                logger.info(f"Batch inserting {len(all_texts)} chunks from {stats['successful_books']} books")
+                
+                # Process in batches to avoid memory issues
+                for i in range(0, len(all_texts), batch_size):
+                    end_idx = min(i + batch_size, len(all_texts))
+                    batch_texts = all_texts[i:end_idx]
+                    batch_metadatas = all_metadatas[i:end_idx]
+                    batch_ids = all_ids[i:end_idx]
+                    
+                    self.collection.add(
+                        documents=batch_texts,
+                        metadatas=batch_metadatas,
+                        ids=batch_ids
+                    )
+                
+                logger.info(f"Successfully added {stats['successful_books']} books with {stats['total_chunks']} chunks")
+            
+        except Exception as e:
+            error_msg = f"Error in batch processing: {e}"
+            stats['errors'].append(error_msg)
+            logger.error(error_msg)
+        
+        stats['processing_time'] = time.time() - start_time
+        return stats
+    
+    def add_ebooks_parallel_batch(self, file_paths: List[str], max_workers: int = 3) -> Dict[str, Any]:
+        """
+        Process multiple ebooks in parallel and add them to the database in batches.
+        
+        Args:
+            file_paths: List of ebook file paths
+            max_workers: Number of parallel processing workers
+            
+        Returns:
+            Dictionary with processing statistics
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        
+        start_time = time.time()
+        stats = {
+            'total_files': len(file_paths),
+            'successful_files': 0,
+            'failed_files': 0,
+            'total_chunks': 0,
+            'processing_time': 0,
+            'errors': []
+        }
+        
+        def process_single_file(file_path: str) -> Dict[str, Any]:
+            """Process a single ebook file."""
+            try:
+                result = self.add_ebook_with_pages(file_path, overwrite=False)
+                return {'success': True, 'file_path': file_path, 'result': result}
+            except Exception as e:
+                return {'success': False, 'file_path': file_path, 'error': str(e)}
+        
+        # Process files in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(process_single_file, file_paths))
+        
+        # Collect statistics
+        for result in results:
+            if result['success']:
+                stats['successful_files'] += 1
+            else:
+                stats['failed_files'] += 1
+                stats['errors'].append(f"Failed to process {result['file_path']}: {result['error']}")
+        
+        stats['processing_time'] = time.time() - start_time
+        logger.info(f"Parallel batch processing complete: {stats['successful_files']}/{stats['total_files']} files processed in {stats['processing_time']:.2f}s")
+        
+        return stats
+    
     def search_books(self, query: str, n_results: int = 5) -> Dict:
         """
         Search for relevant content in your ebook collection

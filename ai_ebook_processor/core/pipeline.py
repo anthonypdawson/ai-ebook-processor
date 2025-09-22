@@ -3,16 +3,19 @@ Text Processing Pipeline Module
 
 This module provides functionality for chunking large text content,
 managing processing workflows, and coordinating text analysis tasks.
+Supports both synchronous and asynchronous processing.
 """
 
 import re
 import logging
-from typing import List, Dict, Optional, Tuple, Any
+import asyncio
+from typing import List, Dict, Optional, Tuple, Any, Callable, Union
 from pathlib import Path
 import math
 from dataclasses import dataclass
 import json
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from tqdm import tqdm
 
@@ -407,6 +410,169 @@ class ProcessingPipeline:
             logger.error(f"Error processing book: {e}")
             self.processing_stats['failed_books'] += 1
             return self._create_empty_result(metadata, str(e))
+    
+    async def process_book_async(self, 
+                               text_content: str, 
+                               metadata: Dict, 
+                               processor, 
+                               prompt_template: str = None, 
+                               system_prompt: str = None,
+                               progress_callback: Optional[Callable[[int, int, str], None]] = None) -> Dict:
+        """
+        Asynchronous version of process_book for parallel processing.
+        
+        Args:
+            text_content (str): Full text content of the book
+            metadata (Dict): Book metadata (title, author, etc.)
+            processor: Ollama processor instance
+            prompt_template (str): Template for processing prompts
+            system_prompt (str): System prompt for processing
+            progress_callback: Optional callback for progress updates (current, total, status)
+            
+        Returns:
+            Dict: Complete processing results
+        """
+        start_time = datetime.now()
+        
+        try:
+            book_title = metadata.get('title', 'Unknown')
+            logger.info(f"Processing book async: {book_title}")
+            
+            # Update progress
+            if progress_callback:
+                progress_callback(0, 100, f"Chunking {book_title}")
+            
+            # Step 1: Chunk the text (run in thread pool for CPU-bound work)
+            loop = asyncio.get_event_loop()
+            chunks = await loop.run_in_executor(
+                None, 
+                self.chunker.chunk_text, 
+                text_content
+            )
+            
+            if not chunks:
+                logger.warning(f"No valid chunks created from {book_title}")
+                return self._create_empty_result(metadata, "No valid chunks created")
+            
+            if progress_callback:
+                progress_callback(20, 100, f"Processing {len(chunks)} chunks")
+            
+            # Step 2: Process chunks through Ollama asynchronously
+            chunk_texts = [chunk.text for chunk in chunks]
+            
+            # Create progress callback for chunk processing
+            chunk_progress_callback = None
+            if progress_callback:
+                def chunk_cb(current, total):
+                    # Map chunk progress to overall progress (20% - 80%)
+                    overall_progress = 20 + int((current / total) * 60)
+                    progress_callback(overall_progress, 100, f"Processing chunk {current}/{total}")
+                chunk_progress_callback = chunk_cb
+            
+            processing_results = await self._process_chunks_async(
+                processor,
+                chunk_texts,
+                prompt_template,
+                system_prompt,
+                progress_callback=chunk_progress_callback
+            )
+            
+            if progress_callback:
+                progress_callback(80, 100, "Combining results")
+            
+            # Step 3: Combine results (same as sync version)
+            combined_result = self._combine_chunk_results(chunks, processing_results, metadata)
+            
+            # Add book summary if enabled
+            if self.config.processing_mode == 'summary':
+                combined_result['book_summary'] = await self._create_book_summary_async(
+                    processor,
+                    text_content[:10000],  # First 10k characters for summary
+                    metadata
+                )
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            combined_result['processing_stats'] = {
+                'processing_time': processing_time,
+                'chunk_count': len(chunks),
+                'success_rate': sum(1 for r in processing_results if r['success']) / len(processing_results)
+            }
+            
+            if progress_callback:
+                progress_callback(100, 100, "Complete")
+            
+            logger.info(f"Successfully processed book async in {processing_time:.2f} seconds")
+            return combined_result
+            
+        except Exception as e:
+            logger.error(f"Error processing book async: {e}")
+            if progress_callback:
+                progress_callback(100, 100, f"Error: {str(e)}")
+            return self._create_empty_result(metadata, str(e))
+
+    async def _process_chunks_async(self, 
+                                   processor, 
+                                   chunk_texts: List[str], 
+                                   prompt_template: str = None,
+                                   system_prompt: str = None,
+                                   progress_callback: Optional[Callable[[int, int], None]] = None) -> List[Dict]:
+        """
+        Process chunks asynchronously with configurable parallelism.
+        """
+        # Use ThreadPoolExecutor for sync processors (most common case)
+        loop = asyncio.get_event_loop()
+        
+        def process_chunk_sync(index: int, chunk_text: str) -> Tuple[int, Dict]:
+            try:
+                # Use the processor's existing chunk processing method
+                if hasattr(processor, 'process_chunk'):
+                    result = processor.process_chunk(chunk_text, prompt_template, system_prompt)
+                elif hasattr(processor, 'process_text'):
+                    result = processor.process_text(chunk_text, prompt_template, system_prompt)
+                else:
+                    # Fallback - just return the chunk text
+                    result = {'success': True, 'response': chunk_text}
+                
+                return index, result
+            except Exception as e:
+                logger.error(f"Error processing chunk {index}: {e}")
+                return index, {'success': False, 'error': str(e)}
+        
+        # Use ThreadPoolExecutor for concurrent processing
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all chunk processing tasks
+            futures = [
+                loop.run_in_executor(executor, process_chunk_sync, i, chunk_text)
+                for i, chunk_text in enumerate(chunk_texts)
+            ]
+            
+            # Collect results as they complete, updating progress
+            completed_results = []
+            for future in asyncio.as_completed(futures):
+                result = await future
+                completed_results.append(result)
+                
+                if progress_callback:
+                    progress_callback(len(completed_results), len(chunk_texts))
+        
+        # Sort results by original order
+        ordered_results = [None] * len(chunk_texts)
+        for index, chunk_result in completed_results:
+            ordered_results[index] = chunk_result
+        
+        return ordered_results
+
+    async def _create_book_summary_async(self, processor, text_content: str, metadata: Dict) -> str:
+        """Create book summary asynchronously."""
+        loop = asyncio.get_event_loop()
+        
+        def create_summary_sync():
+            if hasattr(processor, 'create_book_summary'):
+                return processor.create_book_summary(text_content, metadata)
+            else:
+                return "Summary generation not available"
+        
+        return await loop.run_in_executor(None, create_summary_sync)
     
     def process_multiple_books(self,
                               book_data: List[Tuple[str, Dict]],  # (text, metadata) pairs

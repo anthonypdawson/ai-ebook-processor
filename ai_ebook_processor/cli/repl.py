@@ -65,6 +65,8 @@ class EbookREPL:
             'search': self.cmd_search,
             'config': self.cmd_config,
             'clear': self.cmd_clear,
+            'purge': self.cmd_purge,
+            'remove': self.cmd_remove,
         }
         
         # Command aliases for convenience (RAG-focused)
@@ -117,12 +119,12 @@ class EbookREPL:
             # Get model name from config
             model_name = self.config.get('ollama.model', 'llama3.2:latest')
             ollama_host = self.config.get('ollama.host', 'http://localhost:11434')
-            
+
             # RAG system is the primary feature
             self.rag_system = EbookRAGSystem()
             # Processor is mainly used internally by RAG for text processing
             self.processor = EbookProcessorApp(model_name=model_name, ollama_host=ollama_host)
-            
+
             # Initialize parallel processor if enabled (for RAG performance)
             if self.parallel_enabled:
                 parallel_config = self.config.get('processing.parallel', {})
@@ -131,7 +133,9 @@ class EbookREPL:
             else:
                 click.echo("✓ RAG system initialized")
         except Exception as e:
+            import traceback
             click.echo(f"⚠ Warning: Could not initialize RAG system: {e}", err=True)
+            click.echo(traceback.format_exc())
             click.echo("  Some features may be unavailable")
     
     def _run_async(self, coro):
@@ -239,25 +243,29 @@ class EbookREPL:
             clean_text = text.strip('"\'')
             path = Path(clean_text)
             
-            # Handle different path scenarios
-            if path.is_absolute() or clean_text.startswith("\\\\"):
-                # Absolute path or UNC path
-                try:
-                    if clean_text.endswith("\\") or clean_text.endswith("/"):
-                        base_dir = path
-                        prefix = ""
-                    else:
+            # Enhanced: If prefix ends with / or \, treat as directory and list its contents
+            if clean_text.endswith("/") or clean_text.endswith("\\"):
+                # List contents of the specified directory
+                if path.is_absolute() or clean_text.startswith("\\"):
+                    base_dir = path
+                else:
+                    base_dir = self.current_directory / path
+                prefix = ""
+                is_absolute = path.is_absolute()
+            else:
+                # Standard behavior
+                if path.is_absolute() or clean_text.startswith("\\"):
+                    try:
                         base_dir = path.parent
                         prefix = path.name
-                except Exception:
-                    return []
-                is_absolute = True
-            else:
-                # Relative path
-                parent = path.parent if str(path.parent) != "." else Path()
-                base_dir = self.current_directory / parent
-                prefix = path.name
-                is_absolute = False
+                    except Exception:
+                        return []
+                    is_absolute = True
+                else:
+                    parent = path.parent if str(path.parent) != "." else Path()
+                    base_dir = self.current_directory / parent
+                    prefix = path.name
+                    is_absolute = False
             
             if not base_dir.exists():
                 return []
@@ -732,13 +740,8 @@ class EbookREPL:
             return self._process_books_sequential(ebook_files)
         
         return successful
-                
-                click.echo(f"✓ Successfully added {successful}/{len(ebook_files)} books")
-            else:
-                click.echo(f"Path is neither file nor directory: {path}", err=True)
-                
-        except Exception as e:
-            click.echo(f"Error adding books: {e}", err=True)
+
+        # (Stray duplicated code removed)
     
     def cmd_batch(self, args: List[str]):
         """Process multiple directories in parallel (batch processing)."""
@@ -837,18 +840,70 @@ class EbookREPL:
         question = " ".join(args)
         click.echo(f"Question: {question}")
         click.echo()
+
+        # Lightweight chit-chat detection to avoid hallucinated personal context
+        if self.config.get('features.hallucination_mitigation', False):
+            if self._is_generic_chitchat(question):
+                click.echo("(This looks like a general conversational question, not about your books.)")
+                click.echo("Tip: Ask something grounded in content, e.g. 'ask What survival strategies are described?'\n")
+                # Still allow override with a leading !
+                if not question.strip().startswith('!'):
+                    return
+                else:
+                    question = question.lstrip('!').strip()
         
+        # Streaming answer for better UX
         try:
-            with click.progressbar(length=1, label='Thinking') as bar:
+            click.echo("Generating answer (streaming)...\n")
+            collected = []
+            # Prefer streaming method if available
+            if hasattr(self.rag_system, 'ask_question_streaming'):
+                for fragment in self.rag_system.ask_question_streaming(question, self.processor.ollama_processor):
+                    if fragment:
+                        collected.append(fragment)
+                        # Print incrementally without extra newlines
+                        sys.stdout.write(fragment)
+                        sys.stdout.flush()
+                if not collected:
+                    click.echo("(No response content returned)")
+                else:
+                    # Print a single clean separator footer
+                    click.echo("\n" + ("─" * 60) + "\n")
+            else:
+                # Fallback to old blocking call
                 response = self.rag_system.ask_question(question, self.processor.ollama_processor)
-                bar.update(1)
-            
-            click.echo("Answer:")
-            click.echo("─" * 50)
-            click.echo(response)
-                    
+                click.echo("Answer:")
+                click.echo("─" * 50)
+                click.echo(response)
+        except KeyboardInterrupt:
+            click.echo("\nGeneration cancelled by user.")
         except Exception as e:
             click.echo(f"Error processing question: {e}", err=True)
+
+    # ---------------- Utility Helpers ----------------
+    def _is_generic_chitchat(self, question: str) -> bool:
+        """Heuristic to detect non-book small-talk queries to reduce hallucinations.
+
+        Returns True if the question is likely generic chit-chat.
+        """
+        q_lower = question.lower().strip()
+        if len(q_lower) < 4:
+            return True
+        # Phrases that usually don't relate to corpus content
+        generic_starts = [
+            'how are you', 'who are you', 'what are you', 'what can you do', 'who made you',
+            'tell me about yourself', 'do you feel', 'are you alive', 'are you sentient'
+        ]
+        for phrase in generic_starts:
+            if q_lower.startswith(phrase):
+                return True
+        # If it contains personal pronouns + no domain keywords
+        pronouns = {'you', 'yourself'}
+        domain_keywords = {'book', 'theme', 'chapter', 'author', 'plot', 'character', 'section', 'content'}
+        tokens = set(q_lower.split())
+        if tokens & pronouns and not (tokens & domain_keywords):
+            return True
+        return False
     
     def cmd_list(self, args: List[str]):
         """List books in RAG system."""
@@ -878,14 +933,105 @@ class EbookREPL:
             for i, book in enumerate(books, 1):
                 title = book.get('title', 'Unknown Title')
                 author = book.get('author', 'Unknown Author')
-                chunks = book.get('chunk_count', 0)
+                chunks = book.get('chunk_count', book.get('chunks', 0))
+                book_id = book.get('book_id', '(no id)')
                 click.echo(f"{i:3}. {title}")
-                click.echo(f"     Author: {author}")
-                click.echo(f"     Chunks: {chunks}")
+                click.echo(f"     Author : {author}")
+                click.echo(f"     Chunks : {chunks}")
+                click.echo(f"     Book ID: {book_id}")
                 click.echo()
                 
         except Exception as e:
             click.echo(f"Error listing books: {e}", err=True)
+
+    def cmd_remove(self, args: List[str]):
+        """Remove a single book by book_id."""
+        if not args:
+            click.echo("Usage: remove <book_id>")
+            return
+        if not self.rag_system:
+            click.echo("RAG system not initialized.")
+            return
+        book_id = args[0]
+        try:
+            if self.rag_system.remove_book(book_id):
+                click.echo(f"Removed book: {book_id}")
+            else:
+                click.echo(f"Book not found or could not remove: {book_id}")
+        except Exception as e:
+            click.echo(f"Error removing book: {e}", err=True)
+
+    def cmd_purge(self, args: List[str]):
+        """Delete the entire RAG database directory and reinitialize it."""
+        opts = set(a.lower() for a in args)
+        dry_run = '--dry-run' in opts or 'dry-run' in opts
+        confirm = 'yes' in opts or 'y' in opts or '--yes' in opts
+        if dry_run:
+            if not self.rag_system:
+                try:
+                    self.rag_system = EbookRAGSystem()
+                except Exception as e:
+                    click.echo(f"Could not initialize RAG system: {e}", err=True)
+                    return
+            db_path = Path(self.rag_system.db_path)
+            if db_path.exists():
+                click.echo(f"[Dry Run] Would delete RAG database directory: {db_path}")
+                for root, dirs, files in os.walk(db_path):
+                    for name in files:
+                        click.echo(f"  File: {os.path.join(root, name)}")
+                    for name in dirs:
+                        click.echo(f"  Dir : {os.path.join(root, name)}")
+            else:
+                click.echo("[Dry Run] RAG database directory not found (nothing to purge).")
+            click.echo("No changes made. To actually delete, run: purge yes")
+            return
+        if not confirm:
+            click.echo("WARNING: This will delete all indexed books.")
+            click.echo("If you're sure, run: purge yes")
+            click.echo("To preview what would be deleted, run: purge --dry-run")
+            return
+        if not self.rag_system:
+            try:
+                self.rag_system = EbookRAGSystem()
+            except Exception as e:
+                click.echo(f"Could not initialize RAG system: {e}", err=True)
+                return
+        db_path = Path(self.rag_system.db_path)
+        try:
+            # Attempt to close ChromaDB client if possible
+            try:
+                client = getattr(self.rag_system, 'client', None)
+                if client and hasattr(client, 'close'):
+                    client.close()
+                # Explicitly delete client and collection references
+                del self.rag_system.client
+                del self.rag_system.collection
+            except Exception as e:
+                click.echo(f"Warning: Could not close DB client cleanly: {e}")
+            import gc, time, shutil
+            gc.collect()
+            max_retries = 5
+            for attempt in range(max_retries):
+                time.sleep(1.5)  # Longer delay for Windows file locks
+                try:
+                    if db_path.exists():
+                        shutil.rmtree(db_path)
+                        click.echo(f"Deleted RAG database directory: {db_path}")
+                    else:
+                        click.echo("RAG database directory not found (nothing to purge).")
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1 and hasattr(e, 'winerror') and e.winerror == 32:
+                        click.echo(f"Retrying file deletion due to lock (attempt {attempt+1})...")
+                        continue
+                    else:
+                        click.echo(f"Error purging database: {e}", err=True)
+                        return
+            # Re-init
+            self.rag_system = EbookRAGSystem(db_path=str(db_path))
+            click.echo("RAG system reinitialized. You can now re-add books with 'add' or 'batch'.")
+        except Exception as e:
+            click.echo(f"Error purging database: {e}", err=True)
     
     def cmd_search(self, args: List[str]):
         """Search for books."""

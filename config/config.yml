@@ -18,7 +18,7 @@ processing:
   
   # Parallel processing configuration
   parallel:
-    enabled: true
+    enabled: false
     book_workers: 3        # Number of books to process simultaneously
     chunk_workers: 4       # Parallel chunks within a single book
     embedding_batch_size: 32  # Batch size for embedding generation
@@ -33,12 +33,12 @@ processing:
 
 # Feature flags for incremental rollout
 features:
-  parallel_processing: true
+  parallel_processing: false
   hallucination_mitigation: false  # Enable after parallel working
   dual_embeddings: false           # Enable after hallucination complete
 
 # RAG system configuration (for future use)
 rag:
-  persist_directory: "ebook_db"
-  collection_name: "ebook_collection"
+  backend: "postgres"
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  postgres_connection: "postgresql://postgres:postgres@localhost:5432/book_db"  # Used if backend is postgres

@@ -14,6 +14,7 @@ import logging
 
 # Third-party imports
 import fitz  # PyMuPDF
+import ebooklib
 from ebooklib import epub
 import chardet
 from docx import Document

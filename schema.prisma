@@ -1,0 +1,16 @@
+model Document {
+  id        Int     @id @default(autoincrement())
+  content   String
+  book_id   String
+  embedding Bytes   // Use Prisma's Bytes for vector, then convert as needed
+  metadata  Json    // Store chunk/book metadata as JSON
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DB_URL")
+}
+
+generator client {
+  provider = "prisma-client-py"
+}

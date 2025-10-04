@@ -732,13 +732,6 @@ class EbookREPL:
             return self._process_books_sequential(ebook_files)
         
         return successful
-                
-                click.echo(f"✓ Successfully added {successful}/{len(ebook_files)} books")
-            else:
-                click.echo(f"Path is neither file nor directory: {path}", err=True)
-                
-        except Exception as e:
-            click.echo(f"Error adding books: {e}", err=True)
     
     def cmd_batch(self, args: List[str]):
         """Process multiple directories in parallel (batch processing)."""

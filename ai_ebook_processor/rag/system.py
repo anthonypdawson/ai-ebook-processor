@@ -6,7 +6,7 @@ to retrieve relevant information and answer questions about your entire collecti
 """
 
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import json
 import logging
 from pathlib import Path

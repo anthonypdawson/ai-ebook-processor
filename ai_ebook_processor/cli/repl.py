@@ -11,7 +11,7 @@ import sys
 import shlex
 import readline
 import asyncio
-from ai_ebook_processor.utils.logger import get_logger
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
 
@@ -22,7 +22,7 @@ from ai_ebook_processor.utils.config import Config
 from ai_ebook_processor.core.parallel import create_parallel_processor
 from ai_ebook_processor.core.pipeline import ProcessingPipeline
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Import RAG functionality
 try:
@@ -83,6 +83,7 @@ class EbookREPL:
             's': 'search',
             'c': 'clear',
             'll': 'list',
+            'rm': 'remove'
         }
         
         self._setup_readline()
@@ -866,19 +867,14 @@ class EbookREPL:
         click.echo(f"Question: {question}")
         if verbose:
             click.echo("🔍 Debug mode enabled - showing context and prompt details")
-        
-        # Check if we have a focused book and show it safely  
-        focused_book = getattr(self, 'focused_book', None)
-        if focused_book:
-            click.echo(f"📖 Searching in: {focused_book['title']} by {focused_book['author']}")
-        else:
-            click.echo("📚 Searching across entire library")
+        if self.focused_book:
+            click.echo(f"📖 Searching in: {self.focused_book['title']} by {self.focused_book['author']}")
         click.echo()
         
         try:
             with click.progressbar(length=1, label='Thinking') as bar:
                 # Pass focused book filter if set
-                book_filter = focused_book['book_id'] if focused_book else None
+                book_filter = self.focused_book['book_id'] if self.focused_book else None
                 response = self.rag_system.ask_question(
                     question, 
                     self.processor.ollama_processor, 

@@ -883,9 +883,12 @@ class EbookRAGSystem:
         Returns:
             Status message
         """
+        start_time = time.time()
         try:
             from ai_ebook_processor.readers.ebook_reader import EbookReader
             from ai_ebook_processor.core.pipeline import TextChunker, ProcessingConfig
+            
+            logger.info(f"⏱️ Starting to add book with pages: '{file_path}'")
             
             # Read ebook with page information
             reader = EbookReader()
@@ -995,14 +998,16 @@ class EbookRAGSystem:
             }
             self.register_book(book_id, book_registry_metadata, stored_chunk_ids)
 
-            success_msg = f"Added {len(chunk_infos)} chunks with page citations for '{metadata.get('title')}' to RAG database"
-            logger.info(success_msg)
+            elapsed_time = time.time() - start_time
+            success_msg = f"Added {len(chunk_infos)} chunks with page citations for '{metadata.get('title')}' to RAG database in {elapsed_time:.2f}s"
+            logger.info(f"✅ {success_msg}")
             click.echo(success_msg)
             return self._build_add_result(True, 'add_pages', book_id, metadata.get('title'), metadata.get('author'), len(chunk_infos), success_msg, metadata=metadata)
             
         except Exception as e:
-            error_msg = f"Error adding ebook with pages to RAG database: {e}"
-            logger.error(error_msg)
+            elapsed_time = time.time() - start_time
+            error_msg = f"Error adding ebook with pages to RAG database after {elapsed_time:.2f}s: {e}"
+            logger.error(f"❌ {error_msg}")
             return self._build_add_result(False, 'add_pages', message=error_msg, error=str(e))
 
     def add_processed_ebook(self, result: Dict, file_path: str = None, overwrite: bool = False) -> Dict[str, Any]:
@@ -1017,9 +1022,12 @@ class EbookRAGSystem:
         Returns:
             Status message indicating what happened
         """
+        start_time = time.time()
         try:
             # Extract metadata
             metadata = result['metadata']
+            title = metadata.get('title', 'Unknown')
+            logger.info(f"⏱️ Starting to add book: '{title}'")
             base_book_id = f"{metadata.get('title', 'unknown')}_{metadata.get('author', 'unknown')}"
             base_book_id = base_book_id.replace(' ', '_').replace('/', '_').replace('\\', '_')
             
@@ -1097,6 +1105,10 @@ class EbookRAGSystem:
             
             logger.info(f"Inserting {len(chunks)} chunks in {total_batches} batches of {batch_size} (auto-calculated)")
             
+            # Import click for progress display
+            import click
+            click.echo(f"Storing {len(chunks)} chunks in database...")
+            
             for batch_idx in range(total_batches):
                 start_idx = batch_idx * batch_size
                 end_idx = min(start_idx + batch_size, len(all_documents))
@@ -1111,9 +1123,12 @@ class EbookRAGSystem:
                         metadatas=batch_metas,
                         ids=batch_ids
                     )
-                    logger.debug(f"Batch {batch_idx + 1}/{total_batches} inserted ({len(batch_docs)} chunks)")
+                    # Show progress like add_ebook_with_pages does
+                    progress = min(end_idx, len(chunks))
+                    click.echo(f"  Stored batch {batch_idx + 1}/{total_batches} - {progress}/{len(chunks)} chunks")
                 except Exception as e:
                     logger.error(f"Error inserting batch {batch_idx + 1}: {e}")
+                    click.echo(f"  ❌ Error in batch {batch_idx + 1}/{total_batches}: {e}")
                     # Continue with next batch rather than failing completely
                     continue
             
@@ -1128,14 +1143,17 @@ class EbookRAGSystem:
                 'chunks': len(chunks)
             }
             self.register_book(book_id, book_registry_metadata, all_ids)
-            
-            success_msg = f"Added {len(chunks)} chunks for '{metadata.get('title')}' to RAG database"
-            logger.info(success_msg)
+
+            elapsed_time = time.time() - start_time
+            success_msg = f"Added {len(chunks)} chunks for '{metadata.get('title')}' to RAG database in {elapsed_time:.2f}s"
+            logger.info(f"✅ {success_msg}")
+            click.echo(success_msg)  # Show user-visible success message
             return self._build_add_result(True, 'add_processed', book_id, metadata.get('title'), metadata.get('author'), len(chunks), success_msg, metadata=metadata)
             
         except Exception as e:
-            error_msg = f"Error adding ebook to RAG database: {e}"
-            logger.error(error_msg)
+            elapsed_time = time.time() - start_time
+            error_msg = f"Error adding ebook to RAG database after {elapsed_time:.2f}s: {e}"
+            logger.error(f"❌ {error_msg}")
             return self._build_add_result(False, 'add_processed', message=error_msg, error=str(e))
     
     def add_multiple_ebooks(self, results: List[Dict]) -> None:
@@ -1254,7 +1272,12 @@ class EbookRAGSystem:
             total_batches = (len(all_texts) + batch_size - 1) // batch_size
             logger.info(f"Processing {len(all_texts)} chunks in {total_batches} batches of {batch_size}")
             
+            # Import click for progress display
+            import click
+            click.echo(f"Batch processing {stats['successful_books']} books with {len(all_texts)} total chunks...")
+            
             for i in range(0, len(all_texts), batch_size):
+                batch_num = (i // batch_size) + 1
                 end_idx = min(i + batch_size, len(all_texts))
                 batch_texts = all_texts[i:end_idx]
                 batch_metadatas = all_metadatas[i:end_idx]
@@ -1266,19 +1289,23 @@ class EbookRAGSystem:
                     ids=batch_ids
                 )
                 
+                # Show progress
+                click.echo(f"  Processed batch {batch_num}/{total_batches} - {end_idx}/{len(all_texts)} chunks")
+                
             # Register all books in the registry after successful batch processing
             for book_id, book_metadata in books_to_register.items():
                 chunk_ids = book_chunk_ids.get(book_id, [])
                 self.register_book(book_id, book_metadata, chunk_ids)
                 
-            logger.info(f"Successfully added {stats['successful_books']} books with {stats['total_chunks']} chunks")
+            stats['processing_time'] = time.time() - start_time
+            logger.info(f"✅ Successfully added {stats['successful_books']} books with {stats['total_chunks']} chunks in {stats['processing_time']:.2f}s")
             
         except Exception as e:
-            error_msg = f"Error in batch processing: {e}"
+            stats['processing_time'] = time.time() - start_time
+            error_msg = f"Error in batch processing after {stats['processing_time']:.2f}s: {e}"
             stats['errors'].append(error_msg)
-            logger.error(error_msg)
+            logger.error(f"❌ {error_msg}")
         
-        stats['processing_time'] = time.time() - start_time
         return stats
     
     def add_ebooks_parallel_batch(self, file_paths: List[str], max_workers: int = 3) -> Dict[str, Any]:

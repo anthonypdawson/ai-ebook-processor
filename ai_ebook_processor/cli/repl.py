@@ -43,6 +43,7 @@ class EbookREPL:
         self.config = Config()
         self.history_file = Path.home() / ".ebook_processor_history"
         self.running = True
+        self.focused_book = None  # Initialize focused book tracking
         
         # Check if parallel processing is enabled
         self.parallel_enabled = self.config.get('features.parallel_processing', True) and \
@@ -865,14 +866,19 @@ class EbookREPL:
         click.echo(f"Question: {question}")
         if verbose:
             click.echo("🔍 Debug mode enabled - showing context and prompt details")
-        if self.focused_book:
-            click.echo(f"📖 Searching in: {self.focused_book['title']} by {self.focused_book['author']}")
+        
+        # Check if we have a focused book and show it safely  
+        focused_book = getattr(self, 'focused_book', None)
+        if focused_book:
+            click.echo(f"📖 Searching in: {focused_book['title']} by {focused_book['author']}")
+        else:
+            click.echo("📚 Searching across entire library")
         click.echo()
         
         try:
             with click.progressbar(length=1, label='Thinking') as bar:
                 # Pass focused book filter if set
-                book_filter = self.focused_book['book_id'] if self.focused_book else None
+                book_filter = focused_book['book_id'] if focused_book else None
                 response = self.rag_system.ask_question(
                     question, 
                     self.processor.ollama_processor, 

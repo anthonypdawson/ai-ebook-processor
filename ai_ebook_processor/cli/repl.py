@@ -62,9 +62,14 @@ class EbookREPL:
             'batch': self.cmd_batch,
             'ask': self.cmd_ask,
             'list': self.cmd_list,
+            'focus': self.cmd_focus,
+            'unfocus': self.cmd_unfocus,
+            'status': self.cmd_status,
             'search': self.cmd_search,
             'config': self.cmd_config,
             'clear': self.cmd_clear,
+            'cleardb': self.cmd_cleardb,
+            'remove': self.cmd_remove,
         }
         
         # Command aliases for convenience (RAG-focused)
@@ -355,16 +360,20 @@ class EbookREPL:
             click.echo("⚠️  RAG system unavailable - install: pip install chromadb sentence-transformers")
         else:
             try:
-                book_count = 0
+                books = []
                 if self.rag_system:
-                    book_count = len(self.rag_system.list_books())
-                if book_count > 0:
-                    click.echo(f"✅ Knowledge base: {book_count} books ready to query")
+                    books = self.rag_system.list_books()
+                
+                if books:
+                    total_chunks = sum(book.get('chunks', 0) for book in books)
+                    click.echo(f"✅ Knowledge base: {len(books)} books with {total_chunks:,} chunks ready to query")
                     click.echo("💡 Try: ask What are the main themes across my books?")
+                    click.echo("� Type 'list' to see all books")
                 else:
                     click.echo("📚 Empty knowledge base - add your first book!")
                     click.echo("💡 Try: add book.epub  or  add ~/Books/")
-            except:
+            except Exception as e:
+                click.echo(f"⚠️  RAG system error: {e}")
                 click.echo("✅ RAG system ready - add books to start!")
         
         click.echo()
@@ -471,6 +480,8 @@ class EbookREPL:
         
         click.echo("🔧 System Management:")
         click.echo("  config            Show current system configuration")
+        click.echo("  cleardb           Clear entire RAG database (remove all books)")
+        click.echo("  remove <number>   Remove a specific book (use 'list' to see numbers)")
         if self.parallel_enabled:
             click.echo("                    📊 Parallel processing: ENABLED")
         else:
@@ -642,18 +653,24 @@ class EbookREPL:
                     except Exception as e:
                         click.echo(f"Parallel processing failed, falling back to sequential: {e}")
                         result = self.rag_system.add_ebook_with_pages(str(path))
-                        result = {'success': True, 'title': path.name} if result else {'success': False, 'error': 'Processing failed'}
                 else:
                     # Sequential processing
                     with click.progressbar(length=1, label='Processing') as bar:
                         result = self.rag_system.add_ebook_with_pages(str(path))
                         bar.update(1)
-                        result = {'success': True, 'title': path.name} if result else {'success': False, 'error': 'Processing failed'}
-                    
-                if result.get('success'):
-                    click.echo(f"✓ Book '{result.get('title', path.name)}' added successfully")
+                # Expect standardized dict now
+                success = result.get('success', False)
+                title = result.get('title') or result.get('metadata', {}).get('title') or path.name
+                if success:
+                    click.echo(f"✓ Book '{title}' added successfully")
+                    if msg := result.get('message'):
+                        click.echo(msg)
                 else:
-                    click.echo(f"✗ Failed to add book: {result.get('error', 'Unknown error')}", err=True)
+                    err_msg = result.get('error') or result.get('message') or 'Unknown error'
+                    if result.get('skipped'):
+                        click.echo(f"⚠ Skipped '{title}': {err_msg}")
+                    else:
+                        click.echo(f"✗ Failed to add book '{title}': {err_msg}", err=True)
                     
             elif path.is_dir():
                 # Directory processing - use parallel if enabled
@@ -695,8 +712,13 @@ class EbookREPL:
             for ebook_file in bar:
                 try:
                     result = self.rag_system.add_ebook_with_pages(str(ebook_file))
-                    if result:  # If result is not None/empty, consider it successful
-                        successful += 1
+                    if isinstance(result, dict):
+                        if result.get('success'):
+                            successful += 1
+                        elif result.get('skipped'):
+                            click.echo(f"Skipped {ebook_file.name}: {result.get('message')}")
+                        else:
+                            click.echo(f"Failed {ebook_file.name}: {result.get('error') or result.get('message')}")
                 except Exception as e:
                     click.echo(f"\nError processing {ebook_file.name}: {e}", err=True)
         
@@ -811,12 +833,24 @@ class EbookREPL:
     def cmd_ask(self, args: List[str]):
         """Ask a question about your books."""
         if not args:
-            click.echo("Usage: ask <your question>")
+            click.echo("Usage: ask [--verbose] <your question>")
+            click.echo("       ask --verbose What are the main themes?")
             click.echo("Example: ask What are the main themes in my collection?")
             return
         
         if not RAG_AVAILABLE:
             click.echo("RAG system not available. Please check installation.", err=True)
+            return
+        
+        # Parse verbose flag
+        verbose = False
+        question_args = args[:]
+        if args and (args[0] == '--verbose' or args[0] == '-v'):
+            verbose = True
+            question_args = args[1:]
+        
+        if not question_args:
+            click.echo("Please provide a question after the --verbose flag")
             return
         
         # Initialize RAG system if needed
@@ -827,21 +861,177 @@ class EbookREPL:
                 click.echo(f"Could not initialize RAG system: {e}", err=True)
                 return
         
-        question = " ".join(args)
+        question = " ".join(question_args)
         click.echo(f"Question: {question}")
+        if verbose:
+            click.echo("🔍 Debug mode enabled - showing context and prompt details")
+        if self.focused_book:
+            click.echo(f"📖 Searching in: {self.focused_book['title']} by {self.focused_book['author']}")
         click.echo()
         
         try:
             with click.progressbar(length=1, label='Thinking') as bar:
-                response = self.rag_system.ask_question(question, self.processor.ollama_processor)
+                # Pass focused book filter if set
+                book_filter = self.focused_book['book_id'] if self.focused_book else None
+                response = self.rag_system.ask_question(
+                    question, 
+                    self.processor.ollama_processor, 
+                    verbose=verbose,
+                    book_filter=book_filter
+                )
                 bar.update(1)
             
+            if verbose:
+                click.echo()
             click.echo("Answer:")
             click.echo("─" * 50)
             click.echo(response)
                     
         except Exception as e:
             click.echo(f"Error processing question: {e}", err=True)
+
+    def cmd_unfocus(self, args: List[str]):
+        """Remove book focus and return to searching all books."""
+        if self.focused_book:
+            prev_title = self.focused_book['title']
+            self.focused_book = None
+            click.echo(f"📚 Unfocused from '{prev_title}' - now searching all books")
+        else:
+            click.echo("No book is currently focused")
+        # Clear last focus matches so number selection doesn't persist
+        if hasattr(self, '_last_focus_matches'):
+            self._last_focus_matches = []
+
+    def cmd_status(self, args: List[str]):
+        """Show current focus status and book information."""
+        if self.focused_book:
+            click.echo(f"📖 Currently focused on:")
+            click.echo(f"   Title: {self.focused_book['title']}")
+            click.echo(f"   Author: {self.focused_book['author']}")
+            click.echo(f"   Format: {self.focused_book['format']}")
+            click.echo(f"   Chunks: {self.focused_book['chunks']}")
+            click.echo(f"   Book ID: {self.focused_book['book_id']}")
+        else:
+            click.echo("📚 Not focused on any specific book - searching all books")
+            if hasattr(self, 'rag_system') and self.rag_system:
+                try:
+                    books = self.rag_system.list_books()
+                    total_chunks = sum(book['chunks'] for book in books)
+                    click.echo(f"   Total books available: {len(books)}")
+                    click.echo(f"   Total chunks: {total_chunks}")
+                except Exception:
+                    pass
+
+    def cmd_focus(self, args: List[str]):
+        """Focus on a specific book for targeted questions."""
+        # Enable selection by number after ambiguous search
+        if hasattr(self, '_last_focus_matches') and self._last_focus_matches and args and len(args) == 1 and args[0].isdigit():
+            idx = int(args[0])
+            matches = self._last_focus_matches
+            if 1 <= idx <= len(matches):
+                self.focused_book = matches[idx - 1]
+                click.echo(f"📖 Focused on: {self.focused_book['title']} by {self.focused_book['author']}")
+                click.echo(f"   Book ID: {self.focused_book['book_id']}")
+                click.echo(f"   Chunks: {self.focused_book['chunks']}")
+                self._last_focus_matches = []
+            else:
+                click.echo(f"Invalid selection. Please choose a number between 1 and {len(matches)}.")
+            return
+
+        if not args:
+            click.echo("Usage: focus <book_title_or_partial_match>")
+            click.echo("Example: focus Deathworlders")
+            click.echo("         focus Neural Network")
+            return
+
+        if not RAG_AVAILABLE:
+            click.echo("RAG system not available. Please check installation.", err=True)
+            return
+
+        # Initialize RAG system if needed
+        if not self.rag_system:
+            try:
+                self.rag_system = EbookRAGSystem()
+            except Exception as e:
+                click.echo(f"Could not initialize RAG system: {e}", err=True)
+                return
+
+        search_term = " ".join(args).lower()
+
+        try:
+            books = self.rag_system.list_books()
+            matches = []
+
+            # Improved matching: whole term or all words must be present
+            search_words = [w for w in search_term.split() if w]
+            for book in books:
+                title_lower = book['title'].lower()
+                author_lower = book['author'].lower()
+                # Exact match (whole search term)
+                if search_term == title_lower or search_term == author_lower:
+                    matches.append(book)
+                    continue
+                # Substring match (whole search term)
+                if search_term in title_lower or search_term in author_lower:
+                    matches.append(book)
+                    continue
+                # All words present in title or author
+                if (all(word in title_lower for word in search_words) or
+                    all(word in author_lower for word in search_words)):
+                    matches.append(book)
+
+            if not matches:
+                click.echo(f"No books found matching '{search_term}'")
+                click.echo("Available books:")
+                for book in books:
+                    click.echo(f"  - {book['title']} by {book['author']}")
+                self._last_focus_matches = []
+                return
+
+            if len(matches) == 1:
+                self.focused_book = matches[0]
+                click.echo(f"📖 Focused on: {self.focused_book['title']} by {self.focused_book['author']}")
+                click.echo(f"   Book ID: {self.focused_book['book_id']}")
+                click.echo(f"   Chunks: {self.focused_book['chunks']}")
+                self._last_focus_matches = []
+            else:
+                click.echo(f"Multiple books match '{search_term}':")
+                for i, book in enumerate(matches, 1):
+                    click.echo(f"  {i}. {book['title']} by {book['author']}")
+                click.echo("\nPlease be more specific or choose by number.")
+                self._last_focus_matches = matches
+
+        except Exception as e:
+            click.echo(f"Error focusing on book: {e}", err=True)
+    
+    def cmd_unfocus(self, args: List[str]):
+        """Remove book focus and return to searching all books."""
+        if self.focused_book:
+            prev_title = self.focused_book['title']
+            self.focused_book = None
+            click.echo(f"📚 Unfocused from '{prev_title}' - now searching all books")
+        else:
+            click.echo("No book is currently focused")
+    
+    def cmd_status(self, args: List[str]):
+        """Show current focus status and book information."""
+        if self.focused_book:
+            click.echo(f"📖 Currently focused on:")
+            click.echo(f"   Title: {self.focused_book['title']}")
+            click.echo(f"   Author: {self.focused_book['author']}")
+            click.echo(f"   Format: {self.focused_book['format']}")
+            click.echo(f"   Chunks: {self.focused_book['chunks']}")
+            click.echo(f"   Book ID: {self.focused_book['book_id']}")
+        else:
+            click.echo("📚 Not focused on any specific book - searching all books")
+            if hasattr(self, 'rag_system') and self.rag_system:
+                try:
+                    books = self.rag_system.list_books()
+                    total_chunks = sum(book['chunks'] for book in books)
+                    click.echo(f"   Total books available: {len(books)}")
+                    click.echo(f"   Total chunks: {total_chunks}")
+                except Exception:
+                    pass
     
     def cmd_list(self, args: List[str]):
         """List books in RAG system."""
@@ -866,16 +1056,26 @@ class EbookREPL:
                 return
             
             click.echo(f"Books in RAG system ({len(books)} total):")
-            click.echo("─" * 50)
+            click.echo("─" * 60)
             
+            total_chunks = 0
             for i, book in enumerate(books, 1):
                 title = book.get('title', 'Unknown Title')
                 author = book.get('author', 'Unknown Author')
-                chunks = book.get('chunk_count', 0)
+                # Use both 'chunks' and 'chunk_count' for backward compatibility
+                chunks = book.get('chunks', book.get('chunk_count', 0))
+                format_type = book.get('format', 'Unknown')
+                
+                total_chunks += chunks
+                
                 click.echo(f"{i:3}. {title}")
                 click.echo(f"     Author: {author}")
-                click.echo(f"     Chunks: {chunks}")
+                click.echo(f"     Chunks: {chunks:,}")
+                click.echo(f"     Format: {format_type}")
                 click.echo()
+            
+            click.echo("─" * 60)
+            click.echo(f"📊 Total: {len(books)} books with {total_chunks:,} chunks")
                 
         except Exception as e:
             click.echo(f"Error listing books: {e}", err=True)
@@ -976,6 +1176,103 @@ class EbookREPL:
             
         except Exception as e:
             click.echo(f"Error showing config: {e}", err=True)
+    
+    def cmd_cleardb(self, args: List[str]):
+        """Clear the RAG database (remove all books)."""
+        if not RAG_AVAILABLE:
+            click.echo("RAG system not available. Please check installation.", err=True)
+            return
+        
+        # Initialize RAG system if needed
+        if not self.rag_system:
+            try:
+                self.rag_system = EbookRAGSystem()
+            except Exception as e:
+                click.echo(f"Could not initialize RAG system: {e}", err=True)
+                return
+        
+        try:
+            books = self.rag_system.list_books()
+            if not books:
+                click.echo("📚 Database is already empty.")
+                return
+            
+            total_chunks = sum(book.get('chunks', book.get('chunk_count', 0)) for book in books)
+            
+            click.echo(f"⚠️  This will remove ALL {len(books)} books ({total_chunks:,} chunks) from the database!")
+            click.echo("📚 Books to be removed:")
+            for book in books:
+                chunk_count = book.get('chunks', book.get('chunk_count', 0))
+                click.echo(f"   - {book['title']}: {chunk_count:,} chunks")
+            
+            # Confirm deletion
+            if click.confirm("\n🗑️  Are you sure you want to clear the entire database?"):
+                click.echo("🔄 Clearing database...")
+                
+                removed_count = 0
+                with click.progressbar(books, label='Removing books') as bar:
+                    for book in bar:
+                        if self.rag_system.remove_book(book['book_id']):
+                            removed_count += 1
+                
+                click.echo(f"✅ Successfully removed {removed_count} books from the database.")
+                click.echo("📚 Database is now empty. You can re-add books with 'add <file_or_directory>'.")
+            else:
+                click.echo("❌ Database clear cancelled.")
+                
+        except Exception as e:
+            click.echo(f"Error clearing database: {e}", err=True)
+    
+    def cmd_remove(self, args: List[str]):
+        """Remove a specific book from the RAG database."""
+        if not RAG_AVAILABLE:
+            click.echo("RAG system not available. Please check installation.", err=True)
+            return
+        
+        if not args:
+            click.echo("Usage: remove <book_number>")
+            click.echo("Use 'list' to see book numbers")
+            return
+        
+        # Initialize RAG system if needed
+        if not self.rag_system:
+            try:
+                self.rag_system = EbookRAGSystem()
+            except Exception as e:
+                click.echo(f"Could not initialize RAG system: {e}", err=True)
+                return
+        
+        try:
+            book_num = int(args[0])
+            books = self.rag_system.list_books()
+            
+            if not books:
+                click.echo("📚 No books in database.")
+                return
+            
+            if book_num < 1 or book_num > len(books):
+                click.echo(f"❌ Invalid book number. Please choose 1-{len(books)}")
+                return
+            
+            book_to_remove = books[book_num - 1]
+            chunk_count = book_to_remove.get('chunks', book_to_remove.get('chunk_count', 0))
+            
+            click.echo(f"📖 Book to remove: {book_to_remove['title']}")
+            click.echo(f"👤 Author: {book_to_remove['author']}")
+            click.echo(f"📄 Chunks: {chunk_count:,}")
+            
+            if click.confirm(f"\n🗑️  Remove '{book_to_remove['title']}' from the database?"):
+                if self.rag_system.remove_book(book_to_remove['book_id']):
+                    click.echo(f"✅ Successfully removed '{book_to_remove['title']}' from the database.")
+                else:
+                    click.echo(f"❌ Failed to remove '{book_to_remove['title']}'.")
+            else:
+                click.echo("❌ Book removal cancelled.")
+                
+        except ValueError:
+            click.echo("❌ Please provide a valid book number")
+        except Exception as e:
+            click.echo(f"Error removing book: {e}", err=True)
 
 
 def start_repl():

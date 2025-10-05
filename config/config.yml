@@ -18,7 +18,7 @@ processing:
   
   # Parallel processing configuration
   parallel:
-    enabled: true
+    enabled: false
     book_workers: 3        # Number of books to process simultaneously
     chunk_workers: 4       # Parallel chunks within a single book
     embedding_batch_size: 32  # Batch size for embedding generation
@@ -42,3 +42,7 @@ rag:
   persist_directory: "ebook_db"
   collection_name: "ebook_collection"
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Batch processing configuration
+  batch_size_override: null  # Override automatic batch size calculation (null = auto-calculate)
+  target_memory_mb: 100       # Target memory usage for batch processing

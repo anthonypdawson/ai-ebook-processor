@@ -1,14 +1,14 @@
-[tool.poetry]
+[project]
 name = "ai-ebook-processor"
 version = "1.0.0"
 description = "AI-powered ebook processing and analysis tool with RAG capabilities"
-authors = ["Anthony Dawson <anthony@example.com>"]
-license = "MIT"
+authors = [{ name = "Anthony Dawson", email = "anthony@example.com" }]
+requires-python = "~=3.9"
 readme = "README.md"
-packages = [{include = "ai_ebook_processor"}]
+license = "MIT"
 keywords = [
     "ebook",
-    "pdf", 
+    "pdf",
     "epub",
     "ai",
     "ollama",
@@ -20,7 +20,7 @@ keywords = [
     "vector-database",
     "chromadb",
     "book-analysis",
-    "document-processing"
+    "document-processing",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -38,51 +38,65 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Office/Business :: Office Suites",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
-    "Environment :: Console"
+    "Environment :: Console",
+]
+dependencies = [
+    "ollama>=0.5.0,<0.6",
+    "ebooklib>=0.19,<0.20",
+    "PyMuPDF>=1.26.0,<2",
+    "python-docx>=1.2.0,<2",
+    "python-pptx>=1.0.0,<2",
+    "chardet>=5.2.0,<6",
+    "tqdm>=4.67.0,<5",
+    "click>=8.1.0,<9",
+    "pyyaml>=6.0.0,<7",
+    "chromadb>=1.0.0,<2",
+    "sentence-transformers>=5.1.0,<6",
+    "numpy>=1.26.0,<2",
+    "beautifulsoup4>=4.12.0,<5",
+    "requests>=2.32.0,<3",
+    "pathvalidate>=2.5.2,<3",
+    "psutil>=7.1.0",
 ]
 
-[tool.poetry.urls]
-"Homepage" = "https://github.com/anthonypdawson/ai-ebook-processor"
-"Repository" = "https://github.com/anthonypdawson/ai-ebook-processor"
-"Documentation" = "https://github.com/anthonypdawson/ai-ebook-processor#readme"
+[project.urls]
+Homepage = "https://github.com/anthonypdawson/ai-ebook-processor"
+Repository = "https://github.com/anthonypdawson/ai-ebook-processor"
+Documentation = "https://github.com/anthonypdawson/ai-ebook-processor#readme"
 "Bug Reports" = "https://github.com/anthonypdawson/ai-ebook-processor/issues"
 
-[tool.poetry.dependencies]
-python = "^3.9"
-ollama = "^0.5.0"
-ebooklib = "^0.19"
-PyMuPDF = "^1.26.0"
-python-docx = "^1.2.0"
-python-pptx = "^1.0.0"
-chardet = "^5.2.0"
-tqdm = "^4.67.0"
-click = "^8.1.0"
-pyyaml = "^6.0.0"
-chromadb = "^1.0.0"
-sentence-transformers = "^5.1.0"
-numpy = "^1.26.0"
-beautifulsoup4 = "^4.12.0"
-requests = "^2.32.0"
-pathvalidate = "^2.5.2"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.0.0"
-pytest-cov = "^4.0.0"
-black = "^22.0.0"
-isort = "^5.10.0"
-flake8 = "^5.0.0"
-
-[tool.poetry.group.nlp.dependencies]
-nltk = "^3.8"
-redis = "^4.0.0"
-
-[tool.poetry.scripts]
+[project.scripts]
 ebook-processor = "ai_ebook_processor.cli.commands:cli"
 ebook-rag = "ai_ebook_processor.cli.commands:rag_cli"
 
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0,<8",
+    "pytest-cov>=4.0.0,<5",
+    "black>=22.0.0,<23",
+    "isort>=5.10.0,<6",
+    "flake8>=5.0.0,<6",
+]
+nlp = [
+    "nltk~=3.8",
+    "redis>=4.0.0,<5",
+]
+
+[tool.uv]
+default-groups = [
+    "dev",
+    "nlp",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["ai_ebook_processor"]
+
+[tool.hatch.build.targets.wheel]
+include = ["ai_ebook_processor"]
+
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.black]
 line-length = 100

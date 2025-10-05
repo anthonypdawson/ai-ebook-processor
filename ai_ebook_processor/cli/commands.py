@@ -20,6 +20,12 @@ try:
 except ImportError:
     RAG_AVAILABLE = False
 
+# Import DEFAULT_CONFIG for config_reset
+try:
+    from ai_ebook_processor.utils.config import DEFAULT_CONFIG
+except ImportError:
+    DEFAULT_CONFIG = {}
+
 
 
 @click.group()

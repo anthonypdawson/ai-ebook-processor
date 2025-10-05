@@ -7,3 +7,5 @@ backup
 /output
 /__pycache__
 /ai_ebook_processor.egg-info
+.idea
+books

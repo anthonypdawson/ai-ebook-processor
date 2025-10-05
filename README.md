@@ -1,3 +1,19 @@
+## 🆕 Recent Changes & Improvements
+
+- **Robust Error Handling**: All commands now provide clear error messages and feedback using `click.echo`, including REPL and CLI operations.
+- **Progress Bars Restored**: Book processing and batch operations show real-time progress bars for better user feedback.
+- **Intelligent Batch Sizing**: Batch size for embedding is now memory-aware and can be overridden via config.
+- **Config Override**: Easily override batch size and other settings in `config.yml` or via CLI commands.
+- **REPL Ask Command Fixes**: The REPL's `ask` command now safely handles cases when no book is focused, with clear user feedback.
+- **Focused Book Logic**: You can focus/unfocus on a specific book for targeted queries; status and feedback are shown in the REPL.
+- **Parallel Processing**: Directory and batch operations use parallel workers for faster ingestion (configurable in `config.yml`).
+- **Command Aliases**: Short aliases for all major commands (`q` for ask, `a` for add, `b` for batch, `l` for list, `s` for search, `c` for clear, `ll` for detailed list).
+- **Config Management**: Use `config-show`, `config-set`, and `config-get` to view and update configuration at runtime.
+- **Enhanced Help & Status**: REPL help and status commands show current focus, book count, and system health.
+- **Verbose Mode**: Use `ask --verbose` for detailed context and debug info in answers.
+- **Graceful Fallbacks**: If parallel processing fails, the system falls back to sequential mode automatically.
+- **Session Persistence**: REPL maintains command history and session state for seamless workflow.
+
 # AI Ebook Processor with RAG System
 
 A comprehensive Python application that processes ebooks using local Ollama AI models and creates a searchable knowledge base of your entire collection through advanced RAG (Retrieval Augmented Generation) techniques.
@@ -46,7 +62,7 @@ For technical implementation details, see [IMPLEMENTATION_DETAILS.md](IMPLEMENTA
 
 ### Prerequisites
 1. **Python 3.9+** installed on your system
-2. **Poetry** for dependency management (recommended) or pip
+2. **uv** for dependency management (recommended) or pip
 3. **Ollama** installed and running
 4. At least one Ollama model downloaded
 
@@ -70,29 +86,49 @@ ollama pull mistral       # Alternative
 ollama pull codellama     # For code analysis
 ```
 
-### Step 3: Install Poetry (Recommended)
+### Step 3: Install uv (Recommended)
 ```bash
-# Install Poetry (if not already installed)
-curl -sSL https://install.python-poetry.org | python3 -
-
-# Or on Windows:
-# (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+# Install uv (if not already installed)
+pip install uv
 ```
 
 ### Step 4: Install the Ebook Processor
 
-**Option A: Poetry Installation (Recommended)**
+**Option A: uv Installation (Recommended)**
 ```bash
 # Clone the repository
 git clone https://github.com/anthonypdawson/ai-ebook-processor.git
 cd ai-ebook-processor
 
-# Install dependencies with Poetry
-poetry install
+# Install dependencies with uv
+uv install
+### 🆕 REPL Command Aliases & Features
 
-# Use Poetry to run commands:
-poetry run ebook-processor --help
-poetry run ebook-processor rag add-book "path/to/book.epub"
+- `q <question>`: Quick alias for `ask`
+- `a <file/dir>`: Quick alias for `add`
+- `b <dirs...>`: Quick alias for `batch`
+- `l`: Quick alias for `list`
+- `s <query>`: Quick alias for `search`
+- `c`: Quick alias for `clear`
+- `ll`: Quick alias for detailed list
+
+### 🆕 REPL Status & Focus
+
+- Use `focus <search>` to target a specific book for queries
+- Use `unfocus` to clear book focus and search all books
+- Use `status` to show current focus and book info
+
+### 🆕 Error Handling & Feedback
+
+- All commands provide clear error messages and feedback
+- Progress bars are shown for book processing and batch operations
+- If a command fails, a helpful message is displayed
+- REPL ask command handles unfocused state gracefully
+
+
+# Use uv to run commands:
+uv run python -m ai_ebook_processor --help
+uv run python -m ai_ebook_processor rag add-book "path/to/book.epub"
 ```
 
 **Option B: Package Installation**
@@ -154,11 +190,8 @@ ollama serve
 
 ### 2. Start Interactive REPL (Recommended)
 ```bash
-# Using Poetry (recommended)
-poetry run ebook-processor repl
-
-# Or using Python module
-python -m ai_ebook_processor repl
+# Using uv (recommended)
+uv run python -m ai_ebook_processor repl
 ```
 
 **REPL Session Example:**
@@ -190,28 +223,20 @@ Search results (3 found):
 
 ### 3. Traditional CLI Commands (Alternative)
 ```bash
-# Using Poetry (recommended)
-poetry run ebook-processor rag add-book "path/to/your/book.epub"
-poetry run ebook-processor rag add-directory "path/to/ebooks/"
-poetry run ebook-processor rag ask "What are the main themes in my collection?"
-
-# Or using Python module
-python -m ai_ebook_processor rag add-book "path/to/your/book.epub"
-python -m ai_ebook_processor rag add-directory "path/to/ebooks/"
-python -m ai_ebook_processor rag ask "What are the main themes in my collection?"
+# Using uv (recommended)
+uv run python -m ai_ebook_processor rag add-book "path/to/your/book.epub"
+uv run python -m ai_ebook_processor rag add-directory "path/to/ebooks/"
+uv run python -m ai_ebook_processor rag ask "What are the main themes in my collection?"
 ```
 
 ### 4. Traditional Processing (Alternative)
 ```bash
-# Using Poetry
-poetry run ebook-processor process-file "path/to/your/book.epub"
-
-# Or using Python module
-python -m ai_ebook_processor process-file "path/to/your/book.epub"
-python -m ai_ebook_processor process-file "path/to/your/book.epub"
+# Using uv
+uv run python -m ai_ebook_processor process-file "path/to/your/book.epub"
+uv run python -m ai_ebook_processor process-file "path/to/your/book.epub"
 
 # Process all ebooks in a directory  
-python -m ai_ebook_processor process-directory "path/to/ebooks/"
+uv run python -m ai_ebook_processor process-directory "path/to/ebooks/"
 ```
 
 ## 🖥️ CLI Commands Reference
@@ -219,28 +244,28 @@ python -m ai_ebook_processor process-directory "path/to/ebooks/"
 ### Main Commands
 ```bash
 # Show all available commands
-python -m ai_ebook_processor --help
+uv run python -m ai_ebook_processor --help
 
 # Configuration management
-python -m ai_ebook_processor config-show                       # Show current config
-python -m ai_ebook_processor config-set ollama.model llama2    # Set default model  
-python -m ai_ebook_processor models                            # List available models
+uv run python -m ai_ebook_processor config-show                       # Show current config
+uv run python -m ai_ebook_processor config-set ollama.model llama2    # Set default model  
+uv run python -m ai_ebook_processor models                            # List available models
 
 # Discover books without processing
-python -m ai_ebook_processor discover "path/to/ebooks/"        # Find all ebooks in directory
+uv run python -m ai_ebook_processor discover "path/to/ebooks/"        # Find all ebooks in directory
 ```
 
 ### RAG System Commands
 ```bash
 # Import books
-python -m ai_ebook_processor rag add-book "book.epub"          # Add single book
-python -m ai_ebook_processor rag add-book "book.pdf" --fast    # Fast import (skip AI analysis)
-python -m ai_ebook_processor rag add-directory "path/"         # Add entire directory
+uv run python -m ai_ebook_processor rag add-book "book.epub"          # Add single book
+uv run python -m ai_ebook_processor rag add-book "book.pdf" --fast    # Fast import (skip AI analysis)
+uv run python -m ai_ebook_processor rag add-directory "path/"         # Add entire directory
 
 # Query your collection
-python -m ai_ebook_processor rag ask "What themes appear in my books?"
-python -m ai_ebook_processor rag search "artificial intelligence"
-python -m ai_ebook_processor rag stats                         # Show database statistics
+uv run python -m ai_ebook_processor rag ask "What themes appear in my books?"
+uv run python -m ai_ebook_processor rag search "artificial intelligence"
+uv run python -m ai_ebook_processor rag stats                         # Show database statistics
 ```
 
 ### Alternative Usage
@@ -489,16 +514,43 @@ output:
 ## Project Structure
 
 ```
-ebook-processor/
-├── main.py              # Main application class
-├── cli.py               # Command line interface
-├── ebook_reader.py      # Ebook format readers
-├── ollama_processor.py  # Ollama integration
-├── text_pipeline.py     # Text processing pipeline
-├── example.py           # Usage examples
-├── config.yml           # Configuration file (auto-generated)
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
+ai-ebook-processor/
+├── ai_ebook_processor/         # Main Python package (all source code)
+│   ├── cli/                    # CLI commands and REPL interface
+│   │   ├── commands.py         # CLI command definitions
+│   │   ├── repl.py             # Interactive REPL shell
+│   │   └── ...                 # Other CLI modules
+│   ├── core/                   # Core processing logic
+│   │   ├── processor.py        # Main processor class
+│   │   ├── pipeline.py         # Text processing pipeline
+│   │   ├── parallel.py         # Parallel processing utilities
+│   │   └── ...                 # Other core modules
+│   ├── models/                 # Model integrations (Ollama, etc.)
+│   │   └── ollama.py           # Ollama model integration
+│   ├── rag/                    # RAG system and logic
+│   │   ├── system.py           # RAG system core
+│   │   ├── timing.py           # Timing utilities
+│   │   └── ...                 # Other RAG modules
+│   ├── readers/                # Ebook format readers
+│   │   └── ebook_reader.py     # EPUB/PDF/etc. reader
+│   ├── utils/                  # Utility modules
+│   │   ├── config.py           # Config management
+│   │   ├── fast_mode.py        # Fast processing mode
+│   │   └── ...                 # Other utilities
+│   ├── __main__.py             # Entry point for module execution
+│   └── __init__.py             # Package initializer
+├── scripts/                    # CLI and convenience scripts
+│   ├── ebook-processor         # Bash wrapper script
+│   ├── ebook-processor.bat     # Windows batch wrapper
+│   ├── ebook-processor.py      # Python wrapper script
+│   └── ...                     # Other scripts
+├── config/                     # Configuration files
+│   └── config.yml              # Main YAML config
+├── output/                     # Processed results and reports
+├── ebook_db/                   # Vector database for processed books
+├── pyproject.toml              # Project metadata and dependencies
+├── README.md                   # Project documentation
+└── NEXT_FEATURES.md            # Roadmap and upcoming features
 ```
 
 ## Supported File Formats

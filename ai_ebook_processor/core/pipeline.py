@@ -7,11 +7,12 @@ Supports both synchronous and asynchronous processing.
 """
 
 import re
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 import asyncio
 from typing import List, Dict, Optional, Tuple, Any, Callable, Union
 from pathlib import Path
 import math
+import logging
 from dataclasses import dataclass
 import json
 from datetime import datetime
@@ -19,8 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from tqdm import tqdm
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

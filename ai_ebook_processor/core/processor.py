@@ -9,10 +9,11 @@ analyses, and insights.
 
 import os
 import sys
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 from pathlib import Path
 from typing import List, Dict, Optional
 import json
+import logging
 from datetime import datetime
 
 # Local imports
@@ -29,7 +30,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EbookProcessorApp:

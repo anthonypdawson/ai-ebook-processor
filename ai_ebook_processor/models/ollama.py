@@ -6,10 +6,11 @@ for processing text content from ebooks.
 """
 
 import asyncio
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 from typing import Dict, List, Optional, Generator, Any
 import json
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from pathlib import Path
@@ -19,7 +20,7 @@ import ollama
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OllamaProcessor:

@@ -2,6 +2,8 @@
 Fast processing mode that skips AI analysis for quicker book ingestion
 """
 
+import logging
+
 def add_book_fast_mode(ebook_path: str, rag_system, ebook_reader):
     """
     Add a book to RAG database without AI analysis (much faster)
@@ -14,7 +16,8 @@ def add_book_fast_mode(ebook_path: str, rag_system, ebook_reader):
     from ai_ebook_processor.core.pipeline import TextChunker
     import logging
     
-    logger = logging.getLogger(__name__)
+    from ai_ebook_processor.utils.logger import get_logger
+    logger = get_logger(__name__)
     
     try:
         # Read the ebook

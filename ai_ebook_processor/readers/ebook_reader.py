@@ -10,17 +10,18 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 
 # Third-party imports
 import fitz  # PyMuPDF
 import ebooklib
 from ebooklib import epub
 import chardet
+import logging
 from docx import Document
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EbookReader:

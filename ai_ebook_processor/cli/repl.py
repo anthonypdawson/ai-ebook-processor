@@ -11,7 +11,7 @@ import sys
 import shlex
 import readline
 import asyncio
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
 
@@ -22,7 +22,7 @@ from ai_ebook_processor.utils.config import Config
 from ai_ebook_processor.core.parallel import create_parallel_processor
 from ai_ebook_processor.core.pipeline import ProcessingPipeline
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Import RAG functionality
 try:

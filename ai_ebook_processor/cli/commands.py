@@ -63,10 +63,16 @@ def models(ctx):
         click.echo(f"Error listing models: {e}", err=True)
 
 
+
 @cli.command()
+@click.option('--verbose/--no-verbose', default=None, help='Override config logging.verbose')
 @click.pass_context
-def repl(ctx):
+def repl(ctx, verbose):
     """Start interactive REPL mode"""
+    config = ctx.obj['config']
+    if verbose is not None:
+        config.set('logging.verbose', verbose)
+        config.set('logging.level', 'debug' if verbose else 'info')
     try:
         from ai_ebook_processor.cli.repl import start_repl
         start_repl()
@@ -317,17 +323,15 @@ def add_book(ctx, file_path, processing_type, db_path, fast, with_pages):
     try:
         if fast:
             # Use fast mode
-            from rag_system import EbookRAGSystem
-            from ebook_reader import EbookReader
-            from fast_mode import add_book_fast_mode
+            from ai_ebook_processor.rag.system import EbookRAGSystem
+            from ai_ebook_processor.utils.fast_mode import add_book_fast_mode
             
             click.echo(f"Fast mode: Processing and adding {file_path}")
             
             rag_system = EbookRAGSystem(db_path=db_path)
-            ebook_reader = EbookReader()
             
             with click.progressbar(length=1, label='Processing (fast)') as bar:
-                success = add_book_fast_mode(file_path, rag_system, ebook_reader)
+                success = add_book_fast_mode(file_path, rag_system)
                 bar.update(1)
             
             if success:

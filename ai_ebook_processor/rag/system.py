@@ -8,7 +8,7 @@ to retrieve relevant information and answer questions about your entire collecti
 import os
 from typing import List, Dict, Optional, Any
 import json
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 import time
 from pathlib import Path
 import hashlib
@@ -20,6 +20,8 @@ import sys
 # Import timing utilities
 from .timing import timing_decorator, Timer, detailed_timer
 from ..utils.config import Config
+
+logger = get_logger(__name__)
 
 # Try to import psutil for memory detection, fallback if not available
 try:
@@ -34,9 +36,9 @@ try:
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
-    logging.warning("RAG dependencies not installed. Run: pip install chromadb sentence-transformers")
+    logger.warning("RAG dependencies not installed. Run: pip install chromadb sentence-transformers")
 
-logger = logging.getLogger(__name__)
+
 
 
 class EbookRAGSystem:
@@ -57,7 +59,7 @@ class EbookRAGSystem:
         
         with Timer("ChromaDB Client Setup"):
             self.db_path = db_path
-            self.client = chromadb.PersistentClient(path=db_path)
+            self.client = chromadb.PersistentClient(path=db_path, settings=chromadb.config.Settings(anonymized_telemetry=False))
             self.collection = self.client.get_or_create_collection("ebooks")
             # Separate collection for book metadata only - this makes book listing super fast
             self.book_registry = self.client.get_or_create_collection("book_registry")
@@ -96,6 +98,7 @@ class EbookRAGSystem:
             logger.error(f"Error computing file hash for {file_path}: {e}")
             return ""
     
+    @timing_decorator('register_book')
     def register_book(self, book_id: str, metadata: Dict, chunk_ids: List[str] = None) -> bool:
         """Register a book in the book registry for fast lookup
         

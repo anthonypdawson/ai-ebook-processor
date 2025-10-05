@@ -14,14 +14,15 @@ Key benefits:
 from __future__ import annotations
 
 import asyncio
-import logging
+from ai_ebook_processor.utils.logger import get_logger
 import time
+import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

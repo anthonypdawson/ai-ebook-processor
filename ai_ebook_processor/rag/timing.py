@@ -7,10 +7,12 @@ execution time of functions and code blocks to help identify performance bottlen
 
 import time
 import logging
+from ai_ebook_processor.utils.logger import get_logger
 from functools import wraps
 from typing import Dict, Any
+from ..utils.config import Config
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def timing_decorator(operation_name: str = None):
@@ -38,8 +40,9 @@ def timing_decorator(operation_name: str = None):
 class Timer:
     """Context manager for timing code blocks"""
     def __init__(self, operation_name: str, verbose: bool = False, threshold: float = 0.5):
+        config = Config()
         self.operation_name = operation_name
-        self.verbose = verbose
+        self.verbose = verbose or config.get('logging.verbose', False)
         self.threshold = threshold
         self.start_time = None
         self.duration = None
@@ -137,15 +140,15 @@ def detailed_timer(operation_name: str, show_analysis: bool = False):
                 analysis = PerformanceAnalyzer.analyze_db_operation(
                     operation_name, self.result_count, self.duration
                 )
+                if(self.verbose):
+                    print(f"📊 Performance Analysis:")
+                    print(f"   Duration: {analysis['duration']:.3f}s")
+                    print(f"   Items: {analysis['result_count']}")
+                    print(f"   Per-item: {analysis['per_item_ms']:.1f}ms")
+                    print(f"   Rating: {analysis['performance_rating']}")
                 
-                print(f"📊 Performance Analysis:")
-                print(f"   Duration: {analysis['duration']:.3f}s")
-                print(f"   Items: {analysis['result_count']}")
-                print(f"   Per-item: {analysis['per_item_ms']:.1f}ms")
-                print(f"   Rating: {analysis['performance_rating']}")
-                
-                suggestions = PerformanceAnalyzer.suggest_optimizations(analysis)
-                if suggestions != "Performance is acceptable":
-                    print(f"💡 Suggestions: {suggestions}")
+                    suggestions = PerformanceAnalyzer.suggest_optimizations(analysis)
+                    if suggestions != "Performance is acceptable":
+                        print(f"💡 Suggestions: {suggestions}")
     
     return DetailedTimer()

@@ -26,17 +26,33 @@ DEFAULT_CONFIG = {
     'output': {
         'directory': 'output',
         'create_report': True
+    },
+    'logging': {
+        'level': 'info',
+        'verbose': False
     }
 }
 
 
 class Config:
-    """Configuration management class"""
-    
+    """Configuration management class (Singleton)"""
+    _instance = None
+
+    def __new__(cls, config_path: str = None):
+        if cls._instance is None:
+            cls._instance = super(Config, cls).__new__(cls)
+            # Store config_path for first initialization
+            cls._instance._initialized = False
+            cls._instance._init_path = config_path
+        return cls._instance
+
     def __init__(self, config_path: str = None):
-        self.config_path = config_path or 'config/config.yml'
+        if getattr(self, '_initialized', False):
+            return
+        self.config_path = config_path or getattr(self, '_init_path', None) or 'config/config.yml'
         self.config = DEFAULT_CONFIG.copy()
         self.load_config()
+        self._initialized = True
     
     def load_config(self):
         """Load configuration from file"""

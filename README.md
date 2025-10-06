@@ -564,6 +564,16 @@ ai-ebook-processor/
 | Plain Text | `.txt` | Plain text files |
 | Word Document | `.docx` | Microsoft Word documents |
 
+## ⚠️ MOBI, AZW, AZW3 Support (Experimental)
+
+Support for Amazon Kindle formats (.mobi, .azw, .azw3) is **experimental**. Many MOBI files are image-based, DRM-protected, or use complex structures that may not be reliably processed. 
+
+**Best Practice:** For consistent results, convert Kindle files to EPUB or PDF using [Calibre](https://calibre-ebook.com/) or similar tools before processing with AI Ebook Processor.
+
+- DRM-protected files cannot be processed.
+- Image-heavy MOBI files may yield little or no text output.
+- EPUB and PDF formats are recommended for best results.
+
 ## Advanced Usage
 
 ### Custom Prompts

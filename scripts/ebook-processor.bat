@@ -8,11 +8,11 @@ REM Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
 set "PROJECT_DIR=%SCRIPT_DIR%.."
 
-REM Check if Poetry is available and use it
-where poetry >nul 2>nul
+REM Check if uv is available and use it
+where uv >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     cd /d "%PROJECT_DIR%"
-    poetry run ebook-processor %*
+    uv run ebook-processor %*
     goto :eof
 )
 

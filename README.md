@@ -160,7 +160,7 @@ For even easier usage, wrapper scripts are included that work from anywhere on y
 
 **Windows:**
 ```cmd
-# Works from any directory - uses Poetry automatically if available
+# Works from any directory - uses uv automatically if available
 ~/src/ai-ebook-processor/scripts/ebook-processor.bat --help
 ~/src/ai-ebook-processor/scripts/ebook-processor.bat rag add-book "book.epub"
 
@@ -170,14 +170,14 @@ python ~/src/ai-ebook-processor/scripts/ebook-processor.py --help
 
 **Linux/Mac/Windows (with bash):**
 ```bash
-# Works from any directory - uses Poetry automatically if available
+# Works from any directory - uses uv automatically if available
 ~/src/ai-ebook-processor/scripts/ebook-processor --help
 ~/src/ai-ebook-processor/scripts/ebook-processor rag add-book "book.epub"
 ```
 
 **Features of the wrapper scripts:**
 - 🌍 Work from any directory on your system
-- 🎯 Automatically use Poetry if available, with fallback to virtual env
+- 🎯 Automatically use uv if available, with fallback to virtual env
 - 📦 Set up proper Python paths automatically
 - 🔄 Intelligent environment detection
 
@@ -288,8 +288,8 @@ The REPL (Read-Eval-Print Loop) provides a seamless interactive experience for m
 
 ### Starting the REPL
 ```bash
-# Using Poetry (recommended)
-poetry run ebook-processor repl
+# Using uv (recommended)
+uv run ebook-processor repl
 
 # Using Python module
 python -m ai_ebook_processor repl
@@ -346,7 +346,7 @@ python -m ai_ebook_processor repl
 
 **Initial Setup:**
 ```bash
-poetry run ebook-processor repl
+uv run ebook-processor repl
 
 🤖 AI Ebook Processor REPL
 Type 'help' for available commands, 'exit' to quit
@@ -471,13 +471,14 @@ python -m ai_ebook_processor models
 # Discover ebooks in a directory
 python -m ai_ebook_processor discover /path/to/ebooks
 
-# Process a single file
-python -m ai_ebook_processor process-file book.epub --type analysis
+# Works from any directory - uses uv automatically if available
+ 🎯 Automatically use uv if available, with fallback to virtual env
 
-# Process directory with custom settings
-python -m ai_ebook_processor process-directory /path/to/ebooks \
-  --type summary \
-  --output results \
+# Using uv (recommended)
+uv run python -m ai_ebook_processor repl
+
+# Using uv (recommended)
+uv run python -m ai_ebook_processor repl
   --recursive \
   --max-files 10
 

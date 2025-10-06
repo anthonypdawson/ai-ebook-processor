@@ -11,10 +11,10 @@ if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
     PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
 fi
 
-# Check if Poetry is available and use it
-if command -v poetry &> /dev/null; then
+# Check if uv is available and use it
+if command -v uv &> /dev/null; then
     cd "$PROJECT_DIR"
-    exec poetry run ebook-processor "$@"
+    exec uv run ebook-processor "$@"
 else
     # Legacy fallback for virtual environment
     VENV_PYTHON="$PROJECT_DIR/.venv/Scripts/python"

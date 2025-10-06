@@ -780,7 +780,48 @@ class EbookReader:
         
         metadata['pages'] = len(page_info)
         return text, metadata, page_info
+    
+    def _read_mobi(self, file_path: Path) -> Tuple[str, Dict]:
+        """Read MOBI format using KindleUnpack"""
+        import tempfile
+        import subprocess
+        import glob
+        # Output directory for extraction
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kindleunpack_script = Path(__file__).parent.parent.parent / 'vendor' / 'KindleUnpack' / 'lib' / 'KindleUnpack.py'
+            # Run KindleUnpack
+            if not kindleunpack_script.exists():
+                logger.error(f"KindleUnpack.py not found at {kindleunpack_script}")
+                raise FileNotFoundError(f"KindleUnpack.py not found at {kindleunpack_script}")
+            try:
+                subprocess.run([
+                    'python', str(kindleunpack_script), str(file_path), tmpdir
+                ], check=True)
+            except Exception as e:
+                logger.error(f"KindleUnpack failed: {e}")
+                raise
 
+            # Find extracted HTML/text files
+            html_files = glob.glob(f"{tmpdir}/**/*.html", recursive=True)
+            text_files = glob.glob(f"{tmpdir}/**/*.txt", recursive=True)
+            content_files = html_files + text_files
+            text_content = []
+            for fname in content_files:
+                try:
+                    with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+                        text_content.append(f.read())
+                except Exception as e:
+                    logger.warning(f"Error reading extracted file {fname}: {e}")
+
+            # Basic metadata
+            metadata = {
+                'title': file_path.stem,
+                'author': 'Unknown',
+                'format': 'MOBI',
+                'file_path': str(file_path)
+            }
+            return '\n\n'.join(text_content), metadata
+        
     def get_book_info(self, file_path: str) -> Dict:
         """Get basic information about an ebook without reading full content"""
         file_path = Path(file_path)

@@ -30,9 +30,14 @@ DEFAULT_CONFIG = {
     'logging': {
         'level': 'info',
         'verbose': False
+    },
+    'rag': {
+        'persist_directory': "ebook_db",
+        'collection_name': "ebook_collection",
+        'embedding_model': "sentence-transformers/all-MiniLM-L6-v2",
+        'context_chunk_count': 10
     }
 }
-
 
 class Config:
     """Configuration management class (Singleton)"""

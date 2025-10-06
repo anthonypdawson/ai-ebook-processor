@@ -74,8 +74,13 @@ class EbookRAGSystem:
         """Lazy load sentence transformer only when needed"""
         if self._encoder is None:
             with Timer("Loading Sentence Transformer Model", verbose=True):
-                from sentence_transformers import SentenceTransformer
-                self._encoder = SentenceTransformer('all-MiniLM-L6-v2')
+                    try:
+                        model_name = self.config.get("rag.embedding_model") or "all-MiniLM-L6-v2"
+                        logger.info(f"Loading sentence transformer model: {model_name}")
+                        self._encoder = SentenceTransformer(model_name)
+                    except Exception as e:
+                        logger.error(f"Error loading sentence transformer model '{model_name}': {e}")
+                        raise ImportError(f"Could not load embedding model '{model_name}'. Please check your config and install the model if needed.")
         return self._encoder
     
     def get_file_hash(self, file_path: str) -> str:
@@ -1371,7 +1376,7 @@ class EbookRAGSystem:
         return stats
     
     @timing_decorator("Search Books")
-    def search_books(self, query: str, n_results: int = 5) -> Dict:
+    def search_books(self, query: str, n_results: int = None) -> Dict:
         """
         Search for relevant content in your ebook collection
         
@@ -1383,6 +1388,8 @@ class EbookRAGSystem:
             Dictionary with search results including page citations
         """
         try:
+            if n_results is None:
+                n_results = self.config.get('rag.context_chunk_count', 5)
             with Timer(f"ChromaDB Query (n={n_results})"):
                 results = self.collection.query(
                     query_texts=[query],
@@ -1450,7 +1457,7 @@ class EbookRAGSystem:
         return citation
     
     @timing_decorator("Ask Question (Total)")
-    def ask_question(self, question: str, ollama_processor, context_chunks: int = 5, verbose: bool = False, book_filter: str = None) -> str:
+    def ask_question(self, question: str, ollama_processor, context_chunks: int = None, verbose: bool = False, book_filter: str = None) -> str:
         """
         Ask a question about your book collection using RAG
         
@@ -1464,6 +1471,8 @@ class EbookRAGSystem:
         Returns:
             AI response based on your books
         """
+        if context_chunks is None:
+            context_chunks = self.config.get('rag.context_chunk_count', 5)
         # Try multiple search strategies to get better context
         if book_filter:
             # Search only within the specified book

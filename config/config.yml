@@ -15,7 +15,7 @@ processing:
   summary_max_chars: 12000
   summary_temperature: 0.15
   require_citations: true
-  
+
   # Parallel processing configuration
   parallel:
     enabled: false
@@ -31,6 +31,10 @@ processing:
     show_chunk_progress: true  # Show chunk-level progress
     show_embedding_progress: true  # Show embedding generation progress
 
+logging:
+  level: info
+  verbose: false
+
 # Feature flags for incremental rollout
 features:
   parallel_processing: true
@@ -41,7 +45,15 @@ features:
 rag:
   persist_directory: "ebook_db"
   collection_name: "ebook_collection"
-  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2" # Common models:
+    # - sentence-transformers/all-MiniLM-L6-v2 (default, fast, small)
+    # - sentence-transformers/all-mpnet-base-v2 (high accuracy, larger)
+    # - sentence-transformers/paraphrase-MiniLM-L6-v2 (paraphrase focus)
+    # - sentence-transformers/distiluse-base-multilingual-cased-v2 (multilingual)
+    # - BAAI/bge-base-en-v1.5 (BGE, high accuracy)
+    # - intfloat/e5-base-v2 (E5, retrieval focus)
+    # - Where possible, use HuggingFace model names
+  context_chunk_count: 10
   
   # Batch processing configuration
   batch_size_override: null  # Override automatic batch size calculation (null = auto-calculate)

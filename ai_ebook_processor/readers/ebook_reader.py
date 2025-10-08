@@ -425,9 +425,17 @@ class EbookReader:
             doc = fitz.open(str(file_path))
             
             # Extract metadata
+            pdf_title = doc.metadata.get('title', '')
+            pdf_author = doc.metadata.get('author', '')
+            
+            # Clean up title if it's a file URI or empty
+            if not pdf_title or pdf_title.startswith('file://') or pdf_title == 'Unknown':
+                # Use full filename (minus extension) as title
+                pdf_title = file_path.stem
+            
             metadata = {
-                'title': doc.metadata.get('title', 'Unknown'),
-                'author': doc.metadata.get('author', 'Unknown'),
+                'title': pdf_title or 'Unknown',
+                'author': pdf_author or 'Unknown',
                 'format': 'PDF',
                 'pages': doc.page_count,
                 'file_path': str(file_path)
@@ -476,9 +484,17 @@ class EbookReader:
             doc = fitz.open(str(file_path))
             
             # Extract metadata
+            pdf_title = doc.metadata.get('title', '')
+            pdf_author = doc.metadata.get('author', '')
+            
+            # Clean up title if it's a file URI or empty
+            if not pdf_title or pdf_title.startswith('file://') or pdf_title == 'Unknown':
+                # Use full filename (minus extension) as title
+                pdf_title = file_path.stem
+            
             metadata = {
-                'title': doc.metadata.get('title', 'Unknown'),
-                'author': doc.metadata.get('author', 'Unknown'),
+                'title': pdf_title or 'Unknown',
+                'author': pdf_author or 'Unknown',
                 'format': 'PDF',
                 'pages': doc.page_count,
                 'file_path': str(file_path)

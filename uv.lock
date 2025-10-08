@@ -27,6 +27,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sentence-transformers" },
+    { name = "torch" },
     { name = "tqdm" },
 ]
 
@@ -60,6 +61,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.0,<7" },
     { name = "requests", specifier = ">=2.32.0,<3" },
     { name = "sentence-transformers", specifier = ">=5.1.0,<6" },
+    { name = "torch", specifier = ">=2.2.0" },
     { name = "tqdm", specifier = ">=4.67.0,<5" },
 ]
 

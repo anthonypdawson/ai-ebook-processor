@@ -102,6 +102,13 @@ cd ai-ebook-processor
 
 # Install dependencies with uv
 uv install
+
+# 🆕 If you want to use PyTorch with CUDA 12.9 support, install with:
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+```
+
+This will install PyTorch and related libraries with CUDA 12.9 support. If you do not have a compatible NVIDIA GPU or do not need CUDA, you can skip this step.
+
 ### 🆕 REPL Command Aliases & Features
 
 - `q <question>`: Quick alias for `ask`

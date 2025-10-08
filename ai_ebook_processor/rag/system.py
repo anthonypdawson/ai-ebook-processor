@@ -32,6 +32,7 @@ except ImportError:
 
 try:
     import chromadb
+    
     from sentence_transformers import SentenceTransformer
     RAG_AVAILABLE = True
 except ImportError:
@@ -77,7 +78,10 @@ class EbookRAGSystem:
                     try:
                         model_name = self.config.get("rag.embedding_model") or "all-MiniLM-L6-v2"
                         logger.info(f"Loading sentence transformer model: {model_name}")
-                        self._encoder = SentenceTransformer(model_name)
+                        import torch
+                        device = "cuda" if torch.cuda.is_available() else "cpu"
+                        logger.info(f"Using device: {device}")
+                        self._encoder = SentenceTransformer(model_name, device=device)
                     except Exception as e:
                         logger.error(f"Error loading sentence transformer model '{model_name}': {e}")
                         raise ImportError(f"Could not load embedding model '{model_name}'. Please check your config and install the model if needed.")
@@ -737,13 +741,13 @@ class EbookRAGSystem:
                 if book_id not in book_data:
                     title = meta.get('book_title') or meta.get('title') or 'Unknown'
                     author = meta.get('author') or 'Unknown'
-                    
-                    # Derive from path if needed
+                    # Derive from filename if needed
                     if title == 'Unknown' and author == 'Unknown':
                         file_path = meta.get('file_path', '')
                         if file_path:
                             from pathlib import Path as _P
                             stem = _P(file_path).stem
+                            # If filename contains ' by ', split for author
                             if ' by ' in stem.lower():
                                 parts = stem.split(' by ', 1)
                                 title = parts[0].strip() if parts[0].strip() else 'Unknown'
@@ -880,6 +884,17 @@ class EbookRAGSystem:
             'metadata': metadata or {}
         }
 
+    def embed_chunks(self, chunk_texts: list, show_progress_bar: bool = True):
+        """
+        Centralized embedding logic for chunk texts.
+        Returns list of embeddings.
+        """
+        try:
+            return self.encoder.encode(chunk_texts, show_progress_bar=show_progress_bar)
+        except Exception as e:
+            logger.error(f"Error encoding embeddings: {e}")
+            raise
+
     def add_ebook_with_pages(self, file_path: str, overwrite: bool = False) -> Dict[str, Any]:
         """
         Add an ebook to the RAG database with page-aware content extraction
@@ -932,12 +947,10 @@ class EbookRAGSystem:
                 return self._build_add_result(False, 'add_pages', book_id, metadata.get('title'), metadata.get('author'), 0, msg, error=msg, metadata=metadata)
 
             click.echo(f"Storing {len(chunk_infos)} chunks in database...")
-            
             # Prepare batch data for efficient insertion
             all_documents = []
             all_metadatas = []
             all_ids = []
-            
             for chunk_info in chunk_infos:
                 doc_id = f"{book_id}_chunk_{chunk_info.index}"
                 chunk_metadata = {
@@ -953,11 +966,10 @@ class EbookRAGSystem:
                     'page_type': chunk_info.page_type,  # 'actual' or 'estimated'
                     'total_pages': metadata.get('pages', 0)
                 }
-                
                 all_documents.append(chunk_info.text)
                 all_metadatas.append(chunk_metadata)
                 all_ids.append(doc_id)
-            
+
             # Calculate optimal batch size based on available memory
             sample_doc = all_documents[0] if all_documents else None
             sample_meta = all_metadatas[0] if all_metadatas else None
@@ -968,22 +980,29 @@ class EbookRAGSystem:
             )
             total_batches = (len(all_documents) + batch_size - 1) // batch_size
             stored_chunk_ids = all_ids.copy()  # For cleanup if cancelled
-            
+
+            click.echo("Encoding chunks to embeddings...")
+            try:
+                embeddings = self.embed_chunks(all_documents, show_progress_bar=True)
+            except Exception as e:
+                click.echo(f"Error encoding embeddings: {e}")
+                return self._build_add_result(False, 'add_pages', book_id, metadata.get('title'), metadata.get('author'), 0, "Embedding error", error=str(e), metadata=metadata)
+
             try:
                 for batch_idx in range(total_batches):
                     start_idx = batch_idx * batch_size
                     end_idx = min(start_idx + batch_size, len(all_documents))
-                    
+
                     batch_docs = all_documents[start_idx:end_idx]
                     batch_metas = all_metadatas[start_idx:end_idx]
                     batch_ids = all_ids[start_idx:end_idx]
-                    
+                    batch_embeddings = embeddings[start_idx:end_idx]
                     self.collection.add(
                         documents=batch_docs,
                         metadatas=batch_metas,
-                        ids=batch_ids
+                        ids=batch_ids,
+                        embeddings=batch_embeddings
                     )
-                    
                     # Print progress every batch or at the end
                     progress = min(end_idx, len(chunk_infos))
                     click.echo(f"  Stored batch {batch_idx + 1}/{total_batches} - {progress}/{len(chunk_infos)} chunks")
@@ -1079,10 +1098,8 @@ class EbookRAGSystem:
             all_documents = []
             all_metadatas = []
             all_ids = []
-            
             for i, chunk in enumerate(chunks):
                 doc_id = f"{book_id}_chunk_{i}"
-                
                 chunk_metadata = {
                     'book_title': metadata.get('title', 'Unknown'),
                     'author': metadata.get('author', 'Unknown'),
@@ -1090,16 +1107,37 @@ class EbookRAGSystem:
                     'chunk_id': i,
                     'book_id': book_id
                 }
-                
                 # Add file hash to metadata if available
                 if file_hash:
                     chunk_metadata['file_hash'] = file_hash
                 if file_path:
                     chunk_metadata['file_path'] = str(file_path)
-                
                 all_documents.append(chunk)
                 all_metadatas.append(chunk_metadata)
                 all_ids.append(doc_id)
+
+            # Calculate optimal batch size based on available memory
+            sample_doc = all_documents[0] if all_documents else None
+            sample_meta = all_metadatas[0] if all_metadatas else None
+            batch_size = self._calculate_optimal_batch_size(
+                sample_doc=sample_doc,
+                sample_metadata=sample_meta,
+                total_items=len(all_documents)
+            )
+            total_batches = (len(all_documents) + batch_size - 1) // batch_size
+
+            logger.info(f"Inserting {len(chunks)} chunks in {total_batches} batches of {batch_size} (auto-calculated)")
+
+            # Import click for progress display
+            import click
+            click.echo(f"Storing {len(chunks)} chunks in database...")
+
+            click.echo("Encoding chunks to embeddings...")
+            try:
+                embeddings = self.embed_chunks(all_documents, show_progress_bar=True)
+            except Exception as e:
+                click.echo(f"Error encoding embeddings: {e}")
+                return self._build_add_result(False, 'add_processed', book_id, metadata.get('title'), metadata.get('author'), 0, "Embedding error", error=str(e), metadata=metadata)
             
             # Calculate optimal batch size based on available memory
             sample_doc = all_documents[0] if all_documents else None

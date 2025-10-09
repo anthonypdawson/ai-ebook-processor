@@ -61,6 +61,7 @@ This document tracks planned features, enhancements, and improvements for the AI
 #### 5. Advanced RAG Improvements
 - **Citation Tracking**: Better source attribution with page numbers and locations
 - **Multi-modal Search**: Search both content and metadata simultaneously
+- **Quantization setting**: Update Ollama config and use options={'quantize': 'q4_0'  # Or q5_1, q8_0, etc.} in calls to generate
 
 #### 6. Performance Optimizations
 - **Caching System**: Cache frequently accessed chunks and AI responses

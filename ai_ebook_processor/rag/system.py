@@ -934,7 +934,10 @@ class EbookRAGSystem:
                     logger.info(f"Overwriting existing book {book_id}")
             
             # Create chunks with page awareness
-            config = ProcessingConfig(chunk_size=1000, chunk_overlap=200)
+            config = ProcessingConfig(
+                chunk_size=self.config.get('processing.chunk_size', 4000),
+                chunk_overlap=self.config.get('processing.chunk_overlap', 200)
+            )
             chunker = TextChunker(config)
             import click
             click.echo(f"Chunking text for '{metadata.get('title')}'...")
@@ -1026,7 +1029,7 @@ class EbookRAGSystem:
             self.register_book(book_id, book_registry_metadata, stored_chunk_ids)
 
             elapsed_time = time.time() - start_time
-            success_msg = f"Added {len(chunk_infos)} chunks with page citations for '{metadata.get('title')}' to RAG database in {elapsed_time:.2f}s"
+            success_msg = f"Added {len(chunk_infos)} chunks of size {config.chunk_size} with page citations for '{metadata.get('title')}' to RAG database in {elapsed_time:.2f}s"
             logger.info(f"✅ {success_msg}")
             click.echo(success_msg)
             return self._build_add_result(True, 'add_pages', book_id, metadata.get('title'), metadata.get('author'), len(chunk_infos), success_msg, metadata=metadata)
@@ -1087,7 +1090,7 @@ class EbookRAGSystem:
                     msg = f"No content found for {book_id}"
                     logger.warning(msg)
                     return self._build_add_result(False, 'add_processed', book_id, metadata.get('title'), metadata.get('author'), 0, msg, error=msg, metadata=metadata)
-                chunks = self._chunk_content(content, chunk_size=1000)
+                chunks = self._chunk_content(content, chunk_size=self.config.get('processing.chunk_size', 1000))
             
             if not chunks:
                 msg = f"No chunks created for {book_id}"

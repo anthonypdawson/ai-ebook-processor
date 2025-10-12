@@ -1090,7 +1090,7 @@ class EbookRAGSystem:
                     msg = f"No content found for {book_id}"
                     logger.warning(msg)
                     return self._build_add_result(False, 'add_processed', book_id, metadata.get('title'), metadata.get('author'), 0, msg, error=msg, metadata=metadata)
-                chunks = self._chunk_content(content, chunk_size=self.config.get('processing.chunk_size', 1000))
+                chunks = self._chunk_content(content, chunk_size=self.config.get('processing.chunk_size', 4000))
             
             if not chunks:
                 msg = f"No chunks created for {book_id}"
@@ -1839,7 +1839,7 @@ class EnhancedEbookProcessor:
             self.rag_system = None
             logger.warning("RAG system not available")
     
-    def process_and_store(self, ebook_path: str, overwrite: bool = False, with_pages: bool = False) -> Dict:
+    def process_and_store(self, ebook_path: str, overwrite: bool = False, with_pages: bool = True) -> Dict:
         """Process an ebook and add it to the RAG system with duplicate prevention
         
         Args:

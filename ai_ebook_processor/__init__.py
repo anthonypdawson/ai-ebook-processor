@@ -9,10 +9,8 @@ __author__ = "AI Ebook Processor Team"
 
 # Main package exports
 from .core.processor import EbookProcessorApp
-from .rag.system import EbookRAGSystem, EnhancedEbookProcessor
-
 __all__ = [
     "EbookProcessorApp",
-    "EbookRAGSystem", 
-    "EnhancedEbookProcessor"
+    # "EbookRAGSystem", 
+    # "EnhancedEbookProcessor"
 ]

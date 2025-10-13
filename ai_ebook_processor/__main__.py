@@ -4,6 +4,8 @@ Module execution entry point for AI Ebook Processor
 
 Allows running the main CLI via: python -m ai_ebook_processor
 """
+from dotenv import load_dotenv
+load_dotenv()
 
 from .cli.commands import cli
 

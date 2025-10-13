@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Import RAG functionality
 try:
-    from ai_ebook_processor.rag.system import EnhancedEbookProcessor, EbookRAGSystem
+    from ai_ebook_processor.rag.document_processor import DocumentProcessor
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
@@ -37,18 +37,17 @@ class EbookREPL:
     
     def __init__(self):
         self.current_directory = Path.cwd()
-        self.rag_system = None
         self.processor = None
         self.parallel_processor = None
         self.config = Config()
         self.history_file = Path.home() / ".ebook_processor_history"
         self.running = True
         self.focused_book = None  # Initialize focused book tracking
-        
+
         # Check if parallel processing is enabled
         self.parallel_enabled = self.config.get('features.parallel_processing', True) and \
                                self.config.get('processing.parallel.enabled', True)
-        
+
         # Command registry
         self.commands: Dict[str, Callable] = {
             'help': self.cmd_help,
@@ -72,7 +71,7 @@ class EbookREPL:
             'cleardb': self.cmd_cleardb,
             'remove': self.cmd_remove,
         }
-        
+
         # Command aliases for convenience (RAG-focused)
         self.aliases: Dict[str, str] = {
             'q': 'ask',      # Primary: Ask questions about your books
@@ -80,12 +79,11 @@ class EbookREPL:
             'b': 'batch',    # Primary: Batch add multiple directories
             'l': 'list',     # Show your book collection
             's': 'search',   # Search within your books
-            's': 'search',
             'c': 'clear',
             'll': 'list',
             'rm': 'remove'
         }
-        
+
         self._setup_readline()
         self._initialize_systems()
     
@@ -119,24 +117,13 @@ class EbookREPL:
             pass
     
     def _initialize_systems(self):
-        """Initialize RAG system and processor."""
+        """Initialize modular RAG system and processor."""
         try:
-            # Get model name from config
             model_name = self.config.get('ollama.model', 'llama3.2:latest')
-            ollama_host = self.config.get('ollama.host', 'http://localhost:11434')
-            
-            # RAG system is the primary feature
-            self.rag_system = EbookRAGSystem()
-            # Processor is mainly used internally by RAG for text processing
-            self.processor = EbookProcessorApp(model_name=model_name, ollama_host=ollama_host)
-            
-            # Initialize parallel processor if enabled (for RAG performance)
-            if self.parallel_enabled:
-                parallel_config = self.config.get('processing.parallel', {})
-                self.parallel_processor = create_parallel_processor(parallel_config, self._process_book_for_rag)
-                click.echo("✓ RAG system with parallel processing initialized")
-            else:
-                click.echo("✓ RAG system initialized")
+            db_path = self.config.get('rag.db_path', 'ebook_db')
+            config_path = self.config.config_path if hasattr(self.config, 'config_path') else 'config/config.yml'
+            self.processor = DocumentProcessor(db_path=db_path, config_path=config_path, model_name=model_name)
+            click.echo("✓ Modular RAG system initialized")
         except Exception as e:
             click.echo(f"⚠ Warning: Could not initialize RAG system: {e}", err=True)
             click.echo("  Some features may be unavailable")
@@ -375,6 +362,7 @@ class EbookREPL:
                     click.echo("📚 Empty knowledge base - add your first book!")
                     click.echo("💡 Try: add book.epub  or  add ~/Books/")
             except Exception as e:
+                click.echo(f"Error: {e}", err=True)
                 click.echo(f"⚠️  RAG system error: {e}")
                 click.echo("✅ RAG system ready - add books to start!")
         
@@ -431,6 +419,7 @@ class EbookREPL:
             try:
                 self.commands[command](cleaned_args)
             except Exception as e:
+                click.echo(f"Error: {e}", err=True)
                 click.echo(f"Error executing command: {e}", err=True)
         else:
             click.echo(f"Unknown command: {command}. Type 'help' for available commands.")
@@ -638,29 +627,12 @@ class EbookREPL:
                 click.echo(f"Path not found: {path}", err=True)
                 return
             
-            # Initialize RAG system if needed
-            if not self.rag_system:
-                self.rag_system = EbookRAGSystem()
-            
+            # DocumentProcessor is initialized in __init__
             if path.is_file():
-                # Single file processing - use parallel chunk processing if enabled
                 click.echo(f"Adding book: {path.name}")
-                
-                if self.parallel_enabled and self.parallel_processor:
-                    # Use parallel processing (includes parallel chunk processing)
-                    click.echo("🚀 Using parallel chunk processing...")
-                    try:
-                        results = self._run_async(self.parallel_processor.process_books_parallel([path]))
-                        result = results[0] if results else {'success': False, 'error': 'No result'}
-                    except Exception as e:
-                        click.echo(f"Parallel processing failed, falling back to sequential: {e}")
-                        result = self.rag_system.add_ebook_with_pages(str(path))
-                else:
-                    # Sequential processing
-                    with click.progressbar(length=1, label='Processing') as bar:
-                        result = self.rag_system.add_ebook_with_pages(str(path))
-                        bar.update(1)
-                # Expect standardized dict now
+                with click.progressbar(length=1, label='Processing') as bar:
+                    result = self.processor.add_document(str(path))
+                    bar.update(1)
                 success = result.get('success', False)
                 title = result.get('title') or result.get('metadata', {}).get('title') or path.name
                 if success:
@@ -673,34 +645,22 @@ class EbookREPL:
                         click.echo(f"⚠ Skipped '{title}': {err_msg}")
                     else:
                         click.echo(f"✗ Failed to add book '{title}': {err_msg}", err=True)
-                    
             elif path.is_dir():
-                # Directory processing - use parallel if enabled
                 click.echo(f"Adding books from directory: {path}")
-                
-                # Find ebook files
                 ebook_extensions = {'.epub', '.pdf', '.mobi', '.azw', '.azw3', '.txt'}
                 ebook_files = []
                 for ext in ebook_extensions:
                     ebook_files.extend(path.glob(f"*{ext}"))
                     ebook_files.extend(path.glob(f"*{ext.upper()}"))
-                
                 if not ebook_files:
                     click.echo("No ebook files found in directory")
                     return
-                
                 click.echo(f"Found {len(ebook_files)} ebook files")
-                
-                # Use parallel processing if enabled and multiple files
-                if self.parallel_enabled and self.parallel_processor and len(ebook_files) > 1:
-                    click.echo("🚀 Using parallel processing...")
-                    successful = self._run_async(self._process_books_parallel(ebook_files))
-                else:
-                    # Sequential processing (original behavior)
-                    if self.parallel_enabled:
-                        click.echo("📚 Processing sequentially (single file or parallel disabled)")
-                    successful = self._process_books_sequential(ebook_files)
-                
+                successful = 0
+                for ebook_file in ebook_files:
+                    result = self.processor.add_document(str(ebook_file))
+                    if result.get('success', False):
+                        successful += 1
                 click.echo(f"✓ Successfully added {successful}/{len(ebook_files)} books")
             
         except Exception as e:
@@ -768,10 +728,7 @@ class EbookREPL:
             click.echo("RAG system not available. Please check installation.", err=True)
             return
         
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            self.rag_system = EbookRAGSystem()
-        
+        # DocumentProcessor is initialized in __init__
         # Collect all directories and validate them
         directories = []
         for path_str in args:
@@ -855,13 +812,7 @@ class EbookREPL:
             click.echo("Please provide a question after the --verbose flag")
             return
         
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
         
         question = " ".join(question_args)
         click.echo(f"Question: {question}")
@@ -950,13 +901,7 @@ class EbookREPL:
             click.echo("RAG system not available. Please check installation.", err=True)
             return
 
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
 
         search_term = " ".join(args).lower()
 
@@ -1041,44 +986,30 @@ class EbookREPL:
             click.echo("RAG system not available. Please check installation.", err=True)
             return
         
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
         
         try:
-            books = self.rag_system.list_books()
-            
+            books = self.processor.list_documents()
             if not books:
                 click.echo("No books found in RAG system.")
                 click.echo("Use 'add <file_or_directory>' to add books.")
                 return
-            
             click.echo(f"Books in RAG system ({len(books)} total):")
             click.echo("─" * 60)
-            
             total_chunks = 0
             for i, book in enumerate(books, 1):
                 title = book.get('title', 'Unknown Title')
                 author = book.get('author', 'Unknown Author')
-                # Use both 'chunks' and 'chunk_count' for backward compatibility
                 chunks = book.get('chunks', book.get('chunk_count', 0))
                 format_type = book.get('format', 'Unknown')
-                
                 total_chunks += chunks
-                
                 click.echo(f"{i:3}. {title}")
                 click.echo(f"     Author: {author}")
                 click.echo(f"     Chunks: {chunks:,}")
                 click.echo(f"     Format: {format_type}")
                 click.echo()
-            
             click.echo("─" * 60)
             click.echo(f"📊 Total: {len(books)} books with {total_chunks:,} chunks")
-                
         except Exception as e:
             click.echo(f"Error listing books: {e}", err=True)
     
@@ -1093,13 +1024,7 @@ class EbookREPL:
             click.echo("RAG system not available. Please check installation.", err=True)
             return
         
-        # Initialize RAG system if needed  
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
         
         search_term = " ".join(args)
         click.echo(f"Searching for: {search_term}")
@@ -1185,16 +1110,10 @@ class EbookREPL:
             click.echo("RAG system not available. Please check installation.", err=True)
             return
         
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
         
         try:
-            books = self.rag_system.list_books()
+            books = self.processor.list_documents()
             if not books:
                 click.echo("📚 Database is already empty.")
                 return
@@ -1214,7 +1133,7 @@ class EbookREPL:
                 removed_count = 0
                 with click.progressbar(books, label='Removing books') as bar:
                     for book in bar:
-                        if self.rag_system.remove_book(book['book_id']):
+                        if self.processor.remove_document(book['book_id']):
                             removed_count += 1
                 
                 click.echo(f"✅ Successfully removed {removed_count} books from the database.")
@@ -1236,17 +1155,11 @@ class EbookREPL:
             click.echo("Use 'list' to see book numbers")
             return
         
-        # Initialize RAG system if needed
-        if not self.rag_system:
-            try:
-                self.rag_system = EbookRAGSystem()
-            except Exception as e:
-                click.echo(f"Could not initialize RAG system: {e}", err=True)
-                return
+        # DocumentProcessor is initialized in __init__
         
         try:
             book_num = int(args[0])
-            books = self.rag_system.list_books()
+            books = self.processor.list_documents()
             
             if not books:
                 click.echo("📚 No books in database.")
@@ -1264,7 +1177,7 @@ class EbookREPL:
             click.echo(f"📄 Chunks: {chunk_count:,}")
             
             if click.confirm(f"\n🗑️  Remove '{book_to_remove['title']}' from the database?"):
-                if self.rag_system.remove_book(book_to_remove['book_id']):
+                if self.processor.remove_document(book_to_remove['book_id']):
                     click.echo(f"✅ Successfully removed '{book_to_remove['title']}' from the database.")
                 else:
                     click.echo(f"❌ Failed to remove '{book_to_remove['title']}'.")

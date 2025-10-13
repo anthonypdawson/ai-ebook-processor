@@ -15,7 +15,7 @@ from typing import Dict, Any
 from ai_ebook_processor.core.processor import EbookProcessorApp
 from ai_ebook_processor.utils.config import Config
 try:
-    from ai_ebook_processor.rag.system import EnhancedEbookProcessor, EbookRAGSystem
+    from ai_ebook_processor.rag.document_processor import DocumentProcessor
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
@@ -255,121 +255,50 @@ def config_show(ctx):
     click.echo(yaml.dump(config.config, default_flow_style=False))
 
 
-@cli.command()
-@click.argument('key')
-@click.argument('value')
-@click.pass_context
-def config_set(ctx, key, value):
-    """Set a configuration value"""
-    config = ctx.obj['config']
-    
-    # Try to parse value as JSON for proper types
-    try:
-        parsed_value = json.loads(value)
-    except json.JSONDecodeError:
-        parsed_value = value
-    
-    config.set(key, parsed_value)
-    config.save_config()
-    click.echo(f"Set {key} = {parsed_value}")
-
-
-@cli.command()
-@click.argument('key')
-@click.pass_context
-def config_get(ctx, key):
-    """Get a configuration value"""
-    config = ctx.obj['config']
-    value = config.get(key)
-    click.echo(f"{key} = {value}")
-
-
-@cli.command()
-@click.pass_context
-def config_reset(ctx):
-    """Reset configuration to defaults"""
-    config = ctx.obj['config']
-    
-    if click.confirm('Reset configuration to defaults?'):
-        config.config = DEFAULT_CONFIG.copy()
-        config.save_config()
-        click.echo("Configuration reset to defaults")
-
-
-# RAG System Commands
-@cli.group()
-@click.pass_context
-def rag(ctx):
-    """RAG (Retrieval Augmented Generation) system commands"""
-    if not RAG_AVAILABLE:
-        click.echo("RAG system not available. Install dependencies:", err=True)
-        click.echo("pip install chromadb sentence-transformers numpy", err=True)
-        ctx.exit(1)
-
-
-@rag.command()
-@click.argument('file_path', type=click.Path(exists=True, dir_okay=False))
-@click.option('--type', '-t', 'processing_type',
-              type=click.Choice(['summary', 'analysis', 'extraction', 'questions', 'critique', 'simplify']),
-              default='summary', help='Type of processing')
+@click.argument('pattern')
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
-@click.option('--fast', is_flag=True, help='Fast mode: Skip AI analysis for quicker processing')
-@click.option('--with-pages', is_flag=True, help='Enable page-aware processing for citations')
+@click.option('--by', type=click.Choice(['title', 'author', 'both']), default='both', help='Search by title, author, or both')
 @click.pass_context
-def add_book(ctx, file_path, processing_type, db_path, fast, with_pages):
-    """Process and add a book to the RAG database"""
-    config = ctx.obj['config']
-    
+def find_book(ctx, pattern, db_path, by):
+    """Find books by title or author pattern"""
     try:
-        if fast:
-            # Use fast mode
-            from ai_ebook_processor.rag.system import EbookRAGSystem
-            from ai_ebook_processor.utils.fast_mode import add_book_fast_mode
-            
-            click.echo(f"Fast mode: Processing and adding {file_path}")
-            
-            rag_system = EbookRAGSystem(db_path=db_path)
-            
-            with click.progressbar(length=1, label='Processing (fast)') as bar:
-                success = add_book_fast_mode(file_path, rag_system)
-                bar.update(1)
-            
-            if success:
-                click.echo(f"✓ Added book to RAG database (fast mode)")
-            else:
-                click.echo(f"Error in fast mode processing", err=True)
-        else:
-            # Use normal or page-aware processing
-            processor = EnhancedEbookProcessor(model_name=config.get('ollama.model'))
-            processor.rag_system.db_path = db_path
-            
-            processing_mode = "with page citations" if with_pages else "standard"
-            click.echo(f"Processing and adding ({processing_mode}): {file_path}")
-            
-            with click.progressbar(length=1, label='Processing') as bar:
-                result = processor.process_and_store(file_path, with_pages=with_pages)
-                bar.update(1)
-            
-            if 'error' in result:
-                click.echo(f"Error: {result['error']}", err=True)
-            elif result.get('duplicate'):
-                title = result['metadata'].get('title', 'Unknown')
-                click.echo(f"→ Skipped '{title}' (already exists)")
-            else:
-                title = result['metadata'].get('title', 'Unknown')
-                if with_pages:
-                    page_info = result.get('chunk_info', {})
-                    page_count = page_info.get('total_pages', 'unknown')
-                    page_type = page_info.get('page_type', 'estimated')
-                    click.echo(f"✓ Added '{title}' with {page_count} {page_type} pages to RAG database")
-                else:
-                    click.echo(f"✓ Added '{title}' to RAG database")
-            
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml')
+        docs = processor.list_documents()
+        if not docs:
+            click.echo("No books found in the RAG database.")
+            return
+        pattern_lower = pattern.lower()
+        matching_docs = []
+        for doc in docs:
+            title = doc.get('title', '').lower()
+            author = doc.get('author', '').lower()
+            if by == 'title' and pattern_lower in title:
+                matching_docs.append(doc)
+            elif by == 'author' and pattern_lower in author:
+                matching_docs.append(doc)
+            elif by == 'both' and (pattern_lower in title or pattern_lower in author):
+                matching_docs.append(doc)
+        if not matching_docs:
+            search_type = "title and author" if by == 'both' else by
+            click.echo(f"No books found with '{pattern}' in {search_type}.")
+            return
+        search_type = "title and author" if by == 'both' else by
+        click.echo(f"Found {len(matching_docs)} book(s) matching '{pattern}' in {search_type}:")
+        click.echo("=" * 70)
+        for i, doc in enumerate(matching_docs, 1):
+            title = doc.get('title', 'Unknown Title')
+            author = doc.get('author', 'Unknown Author')
+            format_type = doc.get('format', 'Unknown')
+            chunks = doc.get('chunks', 0)
+            click.echo(f"{i:3}. {title}")
+            click.echo(f"     Author: {author}")
+            click.echo(f"     Format: {format_type} | Chunks: {chunks}")
+            if i < len(matching_docs):
+                click.echo()
     except Exception as e:
         click.echo(f"Error processing file: {e}", err=True)
 
 
-@rag.command()
 @click.argument('directory', type=click.Path(exists=True, file_okay=False))
 @click.option('--type', '-t', 'processing_type',
               type=click.Choice(['summary', 'analysis', 'extraction', 'questions', 'critique', 'simplify']),
@@ -382,30 +311,23 @@ def add_book(ctx, file_path, processing_type, db_path, fast, with_pages):
 def add_directory(ctx, directory, processing_type, db_path, recursive, max_files, with_pages):
     """Process and add all books in a directory to the RAG database"""
     config = ctx.obj['config']
-    
     try:
-        processor = EnhancedEbookProcessor(model_name=config.get('ollama.model'))
-        processor.rag_system.db_path = db_path
-        
-        # Find ebooks
-        ebooks = processor.app.find_ebooks(directory, recursive)
-        
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml', model_name=config.get('ollama.model'))
+        from ai_ebook_processor.core.processor import EbookProcessorApp
+        app = EbookProcessorApp(model_name=config.get('ollama.model'))
+        ebooks = app.find_ebooks(directory, recursive)
         if max_files and len(ebooks) > max_files:
             ebooks = ebooks[:max_files]
             click.echo(f"Limited to first {max_files} files")
-        
         if not ebooks:
             click.echo("No ebooks found in directory")
             return
-        
         processing_mode = "with page citations" if with_pages else "standard"
         click.echo(f"Processing and adding {len(ebooks)} books ({processing_mode}) to RAG database")
-        
         successful = 0
         skipped = 0
         for i, ebook_path in enumerate(ebooks):
             click.echo(f"Processing {i+1}/{len(ebooks)}: {Path(ebook_path).name}")
-            
             try:
                 result = processor.process_and_store(ebook_path, with_pages=with_pages)
                 if 'error' not in result:
@@ -416,29 +338,20 @@ def add_directory(ctx, directory, processing_type, db_path, recursive, max_files
                     else:
                         successful += 1
                         title = result['metadata'].get('title', 'Unknown')
-                        if with_pages:
-                            page_info = result.get('chunk_info', {})
-                            page_count = page_info.get('total_pages', 'unknown')
-                            click.echo(f"  ✓ Added '{title}' with {page_count} pages")
-                        else:
-                            click.echo(f"  ✓ Added '{title}'")
+                        click.echo(f"  ✓ Added '{title}'")
                 else:
                     click.echo(f"  ✗ Error: {result['error']}")
-                    
             except Exception as e:
                 click.echo(f"  ✗ Error: {e}")
-        
         citation_note = " with page citations" if with_pages else ""
         if skipped > 0:
             click.echo(f"\n✓ Added {successful}/{len(ebooks)} books to RAG database{citation_note} ({skipped} skipped as duplicates)")
         else:
             click.echo(f"\n✓ Added {successful}/{len(ebooks)} books to RAG database{citation_note}")
-        
     except Exception as e:
         click.echo(f"Error processing directory: {e}", err=True)
 
 
-@rag.command()
 @click.argument('question')
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.option('--context-chunks', default=5, help='Number of relevant chunks to use')
@@ -446,31 +359,20 @@ def add_directory(ctx, directory, processing_type, db_path, recursive, max_files
 def ask(ctx, question, db_path, context_chunks):
     """Ask a question about your book collection"""
     config = ctx.obj['config']
-    
     try:
-        processor = EnhancedEbookProcessor(model_name=config.get('ollama.model'))
-        processor.rag_system.db_path = db_path
-        
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml', model_name=config.get('ollama.model'))
         click.echo(f"Question: {question}")
         click.echo("Searching your book collection...")
-        
         with click.progressbar(length=1, label='Thinking') as bar:
-            answer = processor.rag_system.ask_question(
-                question, 
-                processor.ollama_processor, 
-                context_chunks
-            )
+            answer = processor.ask_question(question, context_chunks=context_chunks)
             bar.update(1)
-        
         click.echo("\nAnswer:")
         click.echo("-" * 50)
         click.echo(answer)
-        
     except Exception as e:
         click.echo(f"Error asking question: {e}", err=True)
 
 
-@rag.command()
 @click.argument('query')
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.option('--results', '-n', default=5, help='Number of results to show')
@@ -478,179 +380,78 @@ def ask(ctx, question, db_path, context_chunks):
 def search(ctx, query, db_path, results):
     """Search your book collection for relevant content"""
     try:
-        rag_system = EbookRAGSystem(db_path)
-        
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml')
         click.echo(f"Searching for: {query}")
-        search_results = rag_system.search_books(query, results)
-        
-        if not search_results['results']:
+        search_results = processor.search(query, n_results=results)
+        if not search_results:
             click.echo("No relevant content found.")
             return
-        
-        click.echo(f"\nFound {len(search_results['results'])} relevant passages:")
+        click.echo(f"\nFound {len(search_results)} relevant passages:")
         click.echo("=" * 60)
-        
-        for i, result in enumerate(search_results['results'], 1):
-            book_title = result['metadata'].get('book_title', '').strip()
-            author = result['metadata'].get('author', '').strip()
-            content = result['content'][:300] + "..." if len(result['content']) > 300 else result['content']
-            
-            # Use citation if available, otherwise fallback to old format
-            if 'citation' in result and result['citation']:
-                source_info = result['citation']
-            else:
-                # Fallback for older entries without page info
-                if book_title and author:
-                    source_info = f"From '{book_title}' by {author}"
-                elif book_title:
-                    source_info = f"From '{book_title}'"
-                elif author:
-                    source_info = f"From a book by {author}"
-                else:
-                    format_info = result['metadata'].get('format', '')
-                    if format_info:
-                        source_info = f"From your {format_info} book"
-                    else:
-                        source_info = "From your book collection"
-            
+        for i, result in enumerate(search_results, 1):
+            book_title = result.get('book_title', '').strip()
+            author = result.get('author', '').strip()
+            content = result.get('content', '')[:300] + "..." if len(result.get('content', '')) > 300 else result.get('content', '')
+            source_info = f"From '{book_title}' by {author}" if book_title and author else f"From your book collection"
             click.echo(f"\n{i}. {source_info}:")
             click.echo("-" * 40)
             click.echo(content)
-        
     except Exception as e:
         click.echo(f"Error searching: {e}", err=True)
 
 
-@rag.command()
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.pass_context
 def stats(ctx, db_path):
     """Show RAG database statistics"""
     try:
-        rag_system = EbookRAGSystem(db_path)
-        stats = rag_system.get_collection_stats()
-        
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml')
+        docs = processor.list_documents()
         click.echo("RAG Database Statistics:")
-        click.echo(f"  Total chunks: {stats.get('total_chunks', 0)}")
-        click.echo(f"  Database path: {stats.get('database_path', 'unknown')}")
-        
-        # Check if database directory exists
+        click.echo(f"  Total documents: {len(docs)}")
+        click.echo(f"  Database path: {db_path}")
         db_path_obj = Path(db_path)
         if db_path_obj.exists():
             size_mb = sum(f.stat().st_size for f in db_path_obj.rglob('*') if f.is_file()) / (1024*1024)
             click.echo(f"  Database size: {size_mb:.2f} MB")
-        
     except Exception as e:
         click.echo(f"Error getting stats: {e}", err=True)
 
 
-@rag.command()
 @click.option('--db-path', default='ebook_db', help='Path to RAG database')
 @click.option('--filter', '-f', help='Filter books by title or author (case-insensitive)')
 @click.pass_context
 def list_books(ctx, db_path, filter):
     """List all books in the RAG database"""
     try:
-        rag_system = EbookRAGSystem(db_path)
-        books = rag_system.list_books()
-        
-        if not books:
+        processor = DocumentProcessor(db_path=db_path, config_path='config/config.yml')
+        docs = processor.list_documents()
+        if not docs:
             click.echo("No books found in the RAG database.")
             return
-        
         # Apply filter if provided
         if filter:
             filter_lower = filter.lower()
-            filtered_books = []
-            for book in books:
-                title = book.get('title', '').lower()
-                author = book.get('author', '').lower()
-                if filter_lower in title or filter_lower in author:
-                    filtered_books.append(book)
-            books = filtered_books
-        
-        if not books:
+            docs = [doc for doc in docs if filter_lower in doc.get('title', '').lower() or filter_lower in doc.get('author', '').lower()]
+        if not docs:
             click.echo(f"No books found matching filter: '{filter}'")
             return
-        
-        click.echo(f"Found {len(books)} book(s) in the RAG database:")
+        click.echo(f"Found {len(docs)} book(s) in the RAG database:")
         click.echo("=" * 70)
-        
-        for i, book in enumerate(books, 1):
-            title = book.get('title', 'Unknown Title')
-            author = book.get('author', 'Unknown Author')
-            format_type = book.get('format', 'Unknown')
-            chunks = book.get('chunks', 0)
-            
+        for i, doc in enumerate(docs, 1):
+            title = doc.get('title', 'Unknown Title')
+            author = doc.get('author', 'Unknown Author')
+            format_type = doc.get('format', 'Unknown')
+            chunks = doc.get('chunks', 0)
             click.echo(f"{i:3}. {title}")
             click.echo(f"     Author: {author}")
             click.echo(f"     Format: {format_type} | Chunks: {chunks}")
-            if i < len(books):  # Don't add separator after last item
+            if i < len(docs):
                 click.echo()
-        
     except Exception as e:
         click.echo(f"Error listing books: {e}", err=True)
-
-
-@rag.command()
-@click.argument('pattern')
-@click.option('--db-path', default='ebook_db', help='Path to RAG database')
-@click.option('--by', type=click.Choice(['title', 'author', 'both']), default='both', 
-              help='Search by title, author, or both')
-@click.pass_context
-def find_book(ctx, pattern, db_path, by):
-    """Find books by title or author pattern"""
-    try:
-        rag_system = EbookRAGSystem(db_path)
-        books = rag_system.list_books()
         
-        if not books:
-            click.echo("No books found in the RAG database.")
-            return
         
-        pattern_lower = pattern.lower()
-        matching_books = []
-        
-        for book in books:
-            title = book.get('title', '').lower()
-            author = book.get('author', '').lower()
-            
-            match = False
-            if by == 'title' and pattern_lower in title:
-                match = True
-            elif by == 'author' and pattern_lower in author:
-                match = True
-            elif by == 'both' and (pattern_lower in title or pattern_lower in author):
-                match = True
-            
-            if match:
-                matching_books.append(book)
-        
-        if not matching_books:
-            search_type = "title and author" if by == 'both' else by
-            click.echo(f"No books found with '{pattern}' in {search_type}.")
-            return
-        
-        search_type = "title and author" if by == 'both' else by
-        click.echo(f"Found {len(matching_books)} book(s) matching '{pattern}' in {search_type}:")
-        click.echo("=" * 70)
-        
-        for i, book in enumerate(matching_books, 1):
-            title = book.get('title', 'Unknown Title')
-            author = book.get('author', 'Unknown Author')
-            format_type = book.get('format', 'Unknown')
-            chunks = book.get('chunks', 0)
-            book_id = book.get('book_id', '')
-            
-            click.echo(f"{i:3}. {title}")
-            click.echo(f"     Author: {author}")
-            click.echo(f"     Format: {format_type} | Chunks: {chunks}")
-            click.echo(f"     Book ID: {book_id}")
-            if i < len(matching_books):  # Don't add separator after last item
-                click.echo()
-        
-    except Exception as e:
-        click.echo(f"Error finding books: {e}", err=True)
 
 
 if __name__ == '__main__':
